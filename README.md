@@ -1,5 +1,7 @@
 # chat-logger
 
+![Chat Logger](chat-logger.png)
+
 This proxy allows you to record your chats to create datasets based on your conversations with any Chat LLM.
 
 ## Features
