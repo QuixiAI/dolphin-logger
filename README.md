@@ -2,16 +2,21 @@
 
 ![Dolphin Logger](chat-logger.png)
 
-This proxy allows you to record your chats to create datasets based on your conversations with any Chat LLM.
+This proxy allows you to record your chats to create datasets based on your conversations with any Chat LLM. It now supports multiple LLM backends including OpenAI, Anthropic, and Google.
 
 ## Features
 
 - Maintains OpenAI API compatibility
-- Supports both streaming and non-streaming responses
-- Automatic request logging to JSONL format
-- Configurable model selection
-- Error handling with detailed responses
-- Request/response logging with thread-safe implementation
+- Supports multiple LLM backends:
+    - OpenAI (e.g., gpt-4, gpt-3.5-turbo)
+    - Anthropic (e.g., claude-2, claude-instant-1)
+    - Google (e.g., gemini-pro)
+- Dynamic API key and endpoint selection based on the requested model in the `/v1/chat/completions` endpoint.
+- Provides a `/v1/models` endpoint listing available models: "gpt", "claude", "gemini".
+- Supports both streaming and non-streaming responses.
+- Automatic request logging to JSONL format.
+- Error handling with detailed responses.
+- Request/response logging with thread-safe implementation.
 
 ## Setup
 
@@ -21,16 +26,32 @@ This proxy allows you to record your chats to create datasets based on your conv
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file based on `.env.local`:
+3. Create a `.env` file based on `.env.local`. You'll need to provide API keys and endpoint URLs for the models you intend to use:
 ```env
-OPENAI_API_KEY=your_api_key_here
+# General
+PORT=5001
+
+# For OpenAI models (e.g., "gpt")
+OPENAI_API_KEY=your_openai_api_key_here
 OPENAI_ENDPOINT=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4
+OPENAI_MODEL=gpt-4 # Default model if "gpt" is chosen and no specific model is in the request
+
+# For Anthropic models (e.g., "claude")
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_ENDPOINT=your_anthropic_openai_compatible_endpoint_here
+ANTHROPIC_MODEL=claude-2 # Default model if "claude" is chosen
+
+# For Google models (e.g., "gemini")
+GOOGLE_API_KEY=your_google_api_key_here
+GOOGLE_ENDPOINT=your_google_openai_compatible_endpoint_here
+GOOGLE_MODEL=gemini-pro # Default model if "gemini" is chosen
 
 # For uploading to Hugging Face Hub
 HF_TOKEN=your_hugging_face_write_token
 ```
-Note: Ensure your `HF_TOKEN` has write permissions to the target repository.
+Note:
+- Ensure your `HF_TOKEN` has write permissions to the target repository for uploading logs.
+- `*_ENDPOINT` variables should point to OpenAI API-compatible endpoints.
 
 ## Usage
 
@@ -39,30 +60,82 @@ Note: Ensure your `HF_TOKEN` has write permissions to the target repository.
 python proxy.py
 ```
 
-2. The server will run on port 5001 by default (configurable via PORT environment variable)
+2. The server will run on port 5001 by default (configurable via `PORT` environment variable).
 
-3. Use the proxy exactly as you would use the OpenAI API, but point your requests to your local server:
-```bash
-curl http://localhost:5001/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-api-key" \
-  -d '{
-    "messages": [{"role": "user", "content": "Hello!"}],
-    "stream": true
-  }'
-```
+3. **List available models:**
+   You can check the available model backends by calling the `/v1/models` endpoint:
+   ```bash
+   curl http://localhost:5001/v1/models
+   ```
+   This will return a list like:
+   ```json
+   {
+     "object": "list",
+     "data": [
+       { "id": "gpt", "object": "model", "created": 1677610602, "owned_by": "openai" },
+       { "id": "claude", "object": "model", "created": 1677610602, "owned_by": "anthropic" },
+       { "id": "gemini", "object": "model", "created": 1677610602, "owned_by": "google" }
+     ]
+   }
+   ```
+
+4. **Make chat completion requests:**
+   Use the proxy as you would the OpenAI API, but point your requests to your local server. To use a specific backend (gpt, claude, or gemini), include its name as the model in your request. If the model in the request is a specific model ID (e.g., `gpt-4-turbo`), the proxy will try to infer the backend. If it cannot, or if no model is specified, it will use the `OPENAI_MODEL` by default.
+
+   Example using the "claude" backend (which will use `ANTHROPIC_MODEL` if not specified further):
+   ```bash
+   curl http://localhost:5001/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer your-api-key" \ # Bearer token is not strictly validated by this proxy but included for compatibility
+     -d '{
+       "model": "claude", # or "gpt", "gemini", or a specific model ID like "claude-3-opus-20240229"
+       "messages": [{"role": "user", "content": "Hello from Claude!"}],
+       "stream": true
+     }'
+   ```
+
+   Example using a specific "gpt" model:
+   ```bash
+   curl http://localhost:5001/v1/chat/completions \
+     -H "Content-Type: application/json" \
+     -H "Authorization: Bearer your-api-key" \
+     -d '{
+       "model": "gpt-4-turbo", 
+       "messages": [{"role": "user", "content": "Hello from GPT-4 Turbo!"}],
+       "stream": false
+     }'
+   ```
 
 ## Environment Variables
 
-- `OPENAI_API_KEY`: Your OpenAI API key
-- `OPENAI_ENDPOINT`: The base URL for the OpenAI API
-- `OPENAI_MODEL`: The default model to use for requests
-- `PORT`: Server port (default: 5001)
-- `HF_TOKEN`: Your Hugging Face Hub token with write access, used by `upload.py`.
+The proxy uses the following environment variables:
+
+- `PORT`: Server port (default: 5001).
+
+**Model Specific Environment Variables:**
+
+*   **OpenAI (for "gpt" models):**
+    *   `OPENAI_API_KEY`: Your OpenAI API key.
+    *   `OPENAI_ENDPOINT`: The base URL for the OpenAI API (e.g., `https://api.openai.com/v1`).
+    *   `OPENAI_MODEL`: The default OpenAI model to use if "gpt" is selected or no specific model is provided in the request (e.g., `gpt-4`).
+
+*   **Anthropic (for "claude" models):**
+    *   `ANTHROPIC_API_KEY`: Your Anthropic API key.
+    *   `ANTHROPIC_ENDPOINT`: The base URL for your Anthropic API (must be OpenAI compatible).
+    *   `ANTHROPIC_MODEL`: The default Anthropic model to use if "claude" is selected (e.g., `claude-2`).
+
+*   **Google (for "gemini" models):**
+    *   `GOOGLE_API_KEY`: Your Google API key.
+    *   `GOOGLE_ENDPOINT`: The base URL for your Google API (must be OpenAI compatible).
+    *   `GOOGLE_MODEL`: The default Google model to use if "gemini" is selected (e.g., `gemini-pro`).
+
+**Other Environment Variables:**
+
+- `HF_TOKEN`: Your Hugging Face Hub token with write access, used by `upload.py` for uploading logs.
 
 ## Logging
 
-All requests and responses are automatically logged to `logs.jsonl` in JSONL format. The logging is thread-safe and includes both request and response content.
+All requests and responses for `/v1/chat/completions` are automatically logged to `logs.jsonl` in JSONL format. The logging is thread-safe and includes both request and response content.
 
 ## Uploading Logs
 
@@ -88,9 +161,9 @@ python upload.py
 ## Error Handling
 
 The proxy includes comprehensive error handling that:
-- Preserves original OpenAI error messages when available
-- Provides detailed error information for debugging
-- Maintains proper HTTP status codes
+- Preserves original error messages from upstream APIs when available.
+- Provides detailed error information for debugging.
+- Maintains proper HTTP status codes.
 
 ## License
 
