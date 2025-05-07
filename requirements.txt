@@ -1,3 +1,5 @@
 flask
 python-dotenv
 requests
+huggingface-hub
+datasets
