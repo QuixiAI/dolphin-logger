@@ -72,6 +72,5 @@ def upload_and_create_pr():
     except Exception as e:
         print(f"An error occurred: {e}")
 
-
 if __name__ == "__main__":
     upload_and_create_pr()
