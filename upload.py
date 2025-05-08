@@ -58,7 +58,6 @@ def upload_and_create_pr():
             repo_type="dataset",
             operations=operations,
             commit_message=commit_message,
-            revision=branch_name,
             create_pr=True,
         )
         print(f"Successfully committed files to branch '{branch_name}' and created a Pull Request.")
