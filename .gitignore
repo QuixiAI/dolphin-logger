@@ -1,4 +1,10 @@
+# Existing ignores
 __pycache__/
 .env
 *.jsonl
 config.json
+
+# Python packaging ignores
+build/
+dist/
+*.egg-info/

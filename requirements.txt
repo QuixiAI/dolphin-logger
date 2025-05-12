@@ -1,6 +1,0 @@
-flask
-flask-cors
-requests
-huggingface-hub
-datasets
-anthropic

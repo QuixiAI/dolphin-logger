@@ -24,12 +24,14 @@ This proxy allows you to record your chats to create datasets based on your conv
 ## Setup
 
 1. Clone the repository
-2. Install dependencies:
+2. Install the package:
 ```bash
-pip install -r requirements.txt
+pip install .
 ```
 
-3. Create a `config.json` file with your model configurations:
+3.  The `config.json` file should be placed in `~/.dolphin-logger/config.json`. Create the directory if it doesn't exist.
+
+4. Create a `config.json` file with your model configurations:
 ```json
 {
   "models": [
@@ -96,7 +98,7 @@ Note for Ollama models:
 
 1. Start the server:
 ```bash
-python dolphin-logger.py
+dolphin-logger
 ```
 
 2. The server will run on port 5001 by default (configurable via `PORT` environment variable).
@@ -158,19 +160,19 @@ All requests and responses for `/v1/chat/completions` are automatically logged t
 
 ## Uploading Logs
 
-The `upload.py` script facilitates uploading your collected `.jsonl` log files to a Hugging Face Hub dataset.
+You can upload your collected `.jsonl` log files to a Hugging Face Hub dataset using the built-in CLI:
 
 **Prerequisites:**
 - Ensure you have set the `HF_TOKEN` environment variable with a Hugging Face token that has write access to the target dataset repository.
-- The target dataset repository ID is configured within the `upload.py` script (default: `cognitivecomputations/coding-collect`).
+- The target dataset repository ID is configured in the code (default: `cognitivecomputations/dolphin-logger`).
 
 **How to use:**
-1. Run the script from the root directory of the project:
+1. Run the following command from anywhere:
 ```bash
-python upload.py
+dolphin-logger --upload
 ```
-2. The script will:
-    - Find all `.jsonl` files in the current directory.
+2. The CLI will:
+    - Find all `.jsonl` files in your logs directory (`~/.dolphin-logger/logs/`).
     - Create a new branch in the specified Hugging Face dataset repository.
     - Commit the log files to this new branch.
     - Create a Pull Request (Draft) from the new branch to the main branch of the dataset repository.

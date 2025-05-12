@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dolphin-logger"
+version = "0.1.0"
+authors = [
+  { name="Your Name", email="you@example.com" }, # Placeholder - User should update
+]
+description = "A proxy server to log LLM requests and responses."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License", # Assuming MIT, user can change
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "flask",
+    "flask-cors",
+    "requests",
+    "anthropic",
+    # huggingface-hub and datasets seem related to the upload script,
+    # maybe make them optional dependencies or handle separately?
+    # For now, including them as core dependencies based on requirements.txt
+    "huggingface-hub",
+    "datasets",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/user/dolphin-logger" # Placeholder URL
+"Bug Tracker" = "https://github.com/user/dolphin-logger/issues" # Placeholder URL
+
+[project.scripts]
+dolphin-logger = "dolphin_logger.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]  # look for packages in the src directory
