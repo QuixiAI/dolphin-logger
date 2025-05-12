@@ -1,5 +1,6 @@
 flask
-python-dotenv
+flask-cors
 requests
 huggingface-hub
 datasets
+anthropic

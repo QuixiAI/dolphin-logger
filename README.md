@@ -2,21 +2,24 @@
 
 ![Dolphin Logger](chat-logger.png)
 
-This proxy allows you to record your chats to create datasets based on your conversations with any Chat LLM. It now supports multiple LLM backends including OpenAI, Anthropic, and Google.
+This proxy allows you to record your chats to create datasets based on your conversations with any Chat LLM. It supports multiple LLM backends including OpenAI, Anthropic, Google and Ollama.
 
 ## Features
 
 - Maintains OpenAI API compatibility
-- Supports multiple LLM backends:
-    - OpenAI (e.g., gpt-4, gpt-3.5-turbo)
-    - Anthropic (e.g., claude-2, claude-instant-1)
+- Supports multiple LLM backends through configuration:
+    - OpenAI (e.g., gpt-4.1)
+    - Anthropic native SDK (e.g., claude-3-opus)
+    - Anthropic via OpenAI-compatible API
     - Google (e.g., gemini-pro)
-- Dynamic API key and endpoint selection based on the requested model in the `/v1/chat/completions` endpoint.
-- Provides a `/v1/models` endpoint listing available models: "gpt", "claude", "gemini".
-- Supports both streaming and non-streaming responses.
-- Automatic request logging to JSONL format.
-- Error handling with detailed responses.
-- Request/response logging with thread-safe implementation.
+    - Ollama (local models e.g., codestral, dolphin)
+- Configuration-based model definition using `config.json`
+- Dynamic API endpoint selection based on the requested model in the `/v1/chat/completions` endpoint
+- Provides a `/v1/models` endpoint listing all configured models
+- Supports both streaming and non-streaming responses
+- Automatic request logging to JSONL format
+- Error handling with detailed responses
+- Request/response logging with thread-safe implementation
 
 ## Setup
 
@@ -26,116 +29,132 @@ This proxy allows you to record your chats to create datasets based on your conv
 pip install -r requirements.txt
 ```
 
-3. Create a `.env` file based on `.env.local`. You'll need to provide API keys and endpoint URLs for the models you intend to use:
-```env
-# General
-PORT=5001
-
-# For OpenAI models (e.g., "gpt")
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_ENDPOINT=https://api.openai.com/v1
-OPENAI_MODEL=gpt-4 # Default model if "gpt" is chosen and no specific model is in the request
-
-# For Anthropic models (e.g., "claude")
-ANTHROPIC_API_KEY=your_anthropic_api_key_here
-ANTHROPIC_ENDPOINT=your_anthropic_openai_compatible_endpoint_here
-ANTHROPIC_MODEL=claude-2 # Default model if "claude" is chosen
-
-# For Google models (e.g., "gemini")
-GOOGLE_API_KEY=your_google_api_key_here
-GOOGLE_ENDPOINT=your_google_openai_compatible_endpoint_here
-GOOGLE_MODEL=gemini-pro # Default model if "gemini" is chosen
-
-# For uploading to Hugging Face Hub
-HF_TOKEN=your_hugging_face_write_token
+3. Create a `config.json` file with your model configurations:
+```json
+{
+  "models": [
+    {
+      "provider": "openai",
+      "providerModel": "gpt-4.1",
+      "model": "gpt4.1",
+      "apiBase": "https://api.openai.com/v1",
+      "apiKey": "your_openai_api_key_here"
+    },
+    {
+      "provider": "anthropic",
+      "providerModel": "claude-3-7-sonnet-latest",
+      "model": "claude",
+      "apiKey": "your_anthropic_api_key_here"
+    },
+    {
+      "provider": "openai",
+      "providerModel": "claude-3-7-sonnet-latest",
+      "model": "claude-hyprlab",
+      "apiBase": "https://api.hyprlab.io/private",
+      "apiKey": "your_anthropic_api_key_here"
+    },
+    {
+      "provider": "openai",
+      "providerModel": "gemini-2.5-pro-preview-05-06",
+      "model": "gemini",
+      "apiBase": "https://generativelanguage.googleapis.com/v1beta/",
+      "apiKey": "your_google_api_key_here"
+    },
+    {
+      "provider": "ollama",
+      "providerModel": "codestral:22b-v0.1-q5_K_M",
+      "model": "codestral"
+    },
+    {
+      "provider": "ollama",
+      "providerModel": "dolphin3-24b",
+      "model": "dolphin"
+    }
+  ]
+}
 ```
-Note:
-- Ensure your `HF_TOKEN` has write permissions to the target repository for uploading logs.
-- `*_ENDPOINT` variables should point to OpenAI API-compatible endpoints.
+
+Configuration fields:
+- `provider`: The provider type:
+  - "openai" for OpenAI-compatible APIs
+  - "anthropic" for native Anthropic SDK (recommended for Claude models)
+  - "ollama" for local Ollama models
+- `providerModel`: The actual model name to send to the provider's API
+- `model`: The model name that clients will use when making requests to the proxy
+- `apiBase`: The base URL for the API (not needed for "anthropic" or "ollama" providers)
+- `apiKey`: The API key for authentication (not needed for "ollama" provider)
+
+Note for Anthropic models:
+- Using the "anthropic" provider is recommended as it uses the official Anthropic Python SDK
+- This provides better performance and reliability compared to using Claude through an OpenAI-compatible API
+
+Note for Ollama models:
+- The proxy automatically uses "http://localhost:11434/v1" as the endpoint
+- No API key is required for local Ollama models
 
 ## Usage
 
 1. Start the server:
 ```bash
-python proxy.py
+python dolphin-logger.py
 ```
 
 2. The server will run on port 5001 by default (configurable via `PORT` environment variable).
 
 3. **List available models:**
-   You can check the available model backends by calling the `/v1/models` endpoint:
+   You can check the available models by calling the `/v1/models` endpoint:
    ```bash
    curl http://localhost:5001/v1/models
    ```
-   This will return a list like:
+   This will return a list of models defined in your config.json:
    ```json
    {
      "object": "list",
      "data": [
-       { "id": "gpt", "object": "model", "created": 1677610602, "owned_by": "openai" },
-       { "id": "claude", "object": "model", "created": 1677610602, "owned_by": "anthropic" },
-       { "id": "gemini", "object": "model", "created": 1677610602, "owned_by": "google" }
+       { "id": "gpt4.1", "object": "model", "created": 1686935002, "owned_by": "openai", "provider": "openai", "provider_model": "gpt-4.1" },
+       { "id": "claude", "object": "model", "created": 1686935002, "owned_by": "openai", "provider": "openai", "provider_model": "claude-3-7-sonnet-latest" },
+       { "id": "gemini", "object": "model", "created": 1686935002, "owned_by": "openai", "provider": "openai", "provider_model": "gemini-2.5-pro-preview-05-06" },
+       { "id": "codestral", "object": "model", "created": 1686935002, "owned_by": "ollama", "provider": "ollama", "provider_model": "codestral:22b-v0.1-q5_K_M" },
+       { "id": "dolphin", "object": "model", "created": 1686935002, "owned_by": "ollama", "provider": "ollama", "provider_model": "dolphin3-24b" }
      ]
    }
    ```
 
 4. **Make chat completion requests:**
-   Use the proxy as you would the OpenAI API, but point your requests to your local server. To use a specific backend (gpt, claude, or gemini), include its name as the model in your request. If the model in the request is a specific model ID (e.g., `gpt-4-turbo`), the proxy will try to infer the backend. If it cannot, or if no model is specified, it will use the `OPENAI_MODEL` by default.
+   Use the proxy as you would the OpenAI API, but point your requests to your local server. Include the model name (as defined in the `model` field in config.json) in your request.
 
-   Example using the "claude" backend (which will use `ANTHROPIC_MODEL` if not specified further):
+   Example using the "claude" model:
    ```bash
    curl http://localhost:5001/v1/chat/completions \
      -H "Content-Type: application/json" \
-     -H "Authorization: Bearer your-api-key" \ # Bearer token is not strictly validated by this proxy but included for compatibility
+     -H "Authorization: Bearer any-token" \ # Bearer token is not validated but included for compatibility
      -d '{
-       "model": "claude", # or "gpt", "gemini", or a specific model ID like "claude-3-opus-20240229"
+       "model": "claude",
        "messages": [{"role": "user", "content": "Hello from Claude!"}],
        "stream": true
      }'
    ```
 
-   Example using a specific "gpt" model:
+   Example using a local Ollama model:
    ```bash
    curl http://localhost:5001/v1/chat/completions \
      -H "Content-Type: application/json" \
-     -H "Authorization: Bearer your-api-key" \
      -d '{
-       "model": "gpt-4-turbo", 
-       "messages": [{"role": "user", "content": "Hello from GPT-4 Turbo!"}],
+       "model": "dolphin", 
+       "messages": [{"role": "user", "content": "Hello from Dolphin!"}],
        "stream": false
      }'
    ```
 
 ## Environment Variables
 
-The proxy uses the following environment variables:
+The proxy now uses minimal environment variables:
 
-- `PORT`: Server port (default: 5001).
-
-**Model Specific Environment Variables:**
-
-*   **OpenAI (for "gpt" models):**
-    *   `OPENAI_API_KEY`: Your OpenAI API key.
-    *   `OPENAI_ENDPOINT`: The base URL for the OpenAI API (e.g., `https://api.openai.com/v1`).
-    *   `OPENAI_MODEL`: The default OpenAI model to use if "gpt" is selected or no specific model is provided in the request (e.g., `gpt-4`).
-
-*   **Anthropic (for "claude" models):**
-    *   `ANTHROPIC_API_KEY`: Your Anthropic API key.
-    *   `ANTHROPIC_ENDPOINT`: The base URL for your Anthropic API (must be OpenAI compatible).
-    *   `ANTHROPIC_MODEL`: The default Anthropic model to use if "claude" is selected (e.g., `claude-2`).
-
-*   **Google (for "gemini" models):**
-    *   `GOOGLE_API_KEY`: Your Google API key.
-    *   `GOOGLE_ENDPOINT`: The base URL for your Google API (must be OpenAI compatible).
-    *   `GOOGLE_MODEL`: The default Google model to use if "gemini" is selected (e.g., `gemini-pro`).
-
-**Other Environment Variables:**
-
-- `HF_TOKEN`: Your Hugging Face Hub token with write access, used by `upload.py` for uploading logs.
+- `PORT`: Server port (default: 5001)
 
 ## Logging
 
-All requests and responses for `/v1/chat/completions` are automatically logged to `logs.jsonl` in JSONL format. The logging is thread-safe and includes both request and response content.
+All requests and responses for `/v1/chat/completions` are automatically logged to date-specific `.jsonl` files with UUID-based names. The logging is thread-safe and includes both request and response content.
 
 ## Uploading Logs
 

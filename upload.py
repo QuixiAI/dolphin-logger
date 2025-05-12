@@ -3,7 +3,7 @@ import glob
 from huggingface_hub import HfApi, HfFolder, CommitOperationAdd
 from datetime import datetime
 
-DATASET_REPO_ID = "cognitivecomputations/coding-collect"
+DATASET_REPO_ID = "cognitivecomputations/dolphin-logger"
 
 def find_jsonl_files():
     """Finds all .jsonl files in the current directory."""
