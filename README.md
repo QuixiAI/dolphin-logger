@@ -23,21 +23,58 @@ This proxy allows you to record your chats to create datasets based on your conv
 - Error handling with detailed responses.
 - Request/response logging with thread-safe implementation.
 - Support for API keys via environment variables for enhanced security.
+- Command-line interface for server operation, log uploading, and configuration management.
 
-## Setup
+## Installation
 
-1. Clone the repository
-2. Install the package:
-```bash
-pip install .
-```
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/your-username/dolphin-logger.git # Replace with actual URL
+   cd dolphin-logger
+   ```
 
-3.  The `config.json` file should be placed in `~/.dolphin-logger/config.json`. Create the directory if it doesn't exist.
+2. **Install the package:**
+   It's recommended to install in a virtual environment.
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   pip install .
+   ```
 
-4. Create a `config.json` file with your model configurations:
-```json
-{
-  "models": [
+## Configuration
+
+Dolphin Logger uses a `config.json` file to define available LLM models and their settings.
+
+**1. Initial Setup (First-Time Users):**
+
+   Run the `init` command to create the necessary configuration directory and a default configuration file:
+   ```bash
+   dolphin-logger init
+   ```
+   This will:
+   - Create the `~/.dolphin-logger/` directory if it doesn't exist.
+   - Copy a `config.json.example` file from the package to `~/.dolphin-logger/config.json`.
+   - If `~/.dolphin-logger/config.json` already exists, it will not be overwritten.
+
+**2. Configuration File Location:**
+
+   The active configuration file is always expected at:
+   `~/.dolphin-logger/config.json`
+
+   You can check this path using the CLI:
+   ```bash
+   dolphin-logger config --path
+   ```
+
+**3. Editing `config.json`:**
+
+   Open `~/.dolphin_logger/config.json` and customize it with your desired models, API endpoints, and API keys. A `config.json.example` is included in the root of this repository for reference.
+
+   *Example `config.json` structure:*
+   ```json
+   {
+     "models": [
+   # ... (model examples remain the same as before)
     {
       "provider": "openai",
       "providerModel": "gpt-4.1",
@@ -118,121 +155,176 @@ Note for Anthropic models:
 - This provides better performance and reliability compared to using Claude through an OpenAI-compatible API
 
 Note for Ollama models:
-- The proxy automatically uses "http://localhost:11434/v1" as the endpoint
-- No API key is required for local Ollama models
+- If `apiBase` is not specified for an Ollama provider, it defaults to `http://localhost:11434/v1`.
+- No API key is required for local Ollama models.
 
-## Usage
+**4. Validate Configuration (Optional):**
+   After editing, you can validate your `config.json`:
+   ```bash
+   dolphin-logger config --validate
+   ```
+   This will check for JSON syntax errors and basic structural issues.
 
-1. Start the server:
-```bash
-dolphin-logger
+## Command-Line Interface (CLI)
+
+Dolphin Logger is managed via the `dolphin-logger` command-line tool.
+
+```
+dolphin-logger [command] [options]
 ```
 
-2. The server will run on port 5001 by default (configurable via `PORT` environment variable).
+**Available Commands:**
 
-3. **List available models:**
-   You can check the available models by calling the `/v1/models` endpoint:
-   ```bash
-   curl http://localhost:5001/v1/models
-   ```
-   This will return a list of models defined in your config.json:
+*   **`server` (default)**
+    *   Starts the LLM proxy server.
+    *   This is the default action if no command is specified.
+    *   Example:
+        ```bash
+        dolphin-logger
+        # or explicitly
+        dolphin-logger server
+        ```
+    *   The server will run on port 5001 by default (configurable via the `PORT` environment variable).
+
+*   **`upload`**
+    *   Uploads collected `.jsonl` log files from `~/.dolphin-logger/logs/` to a configured Hugging Face Hub dataset repository.
+    *   Example:
+        ```bash
+        dolphin-logger upload
+        ```
+    *   See the "Uploading Logs" section for prerequisites and details.
+
+*   **`init`**
+    *   Initializes the Dolphin Logger configuration.
+    *   Creates the `~/.dolphin-logger/` directory if it doesn't exist.
+    *   Copies a default `config.json.example` to `~/.dolphin-logger/config.json` if no `config.json` is present. This file serves as a template for your actual configuration.
+    *   Example:
+        ```bash
+        dolphin-logger init
+        ```
+
+*   **`config`**
+    *   Manages or inspects the configuration.
+    *   `--path`: Shows the expected absolute path to the `config.json` file.
+        ```bash
+        dolphin-logger config --path
+        ```
+    *   `--validate`: Attempts to load and validate the `config.json` file, checking for JSON correctness and basic structure. It will also report on API keys resolved from environment variables.
+        ```bash
+        dolphin-logger config --validate
+        ```
+
+## Using the Proxy Server
+
+Once the server is running (using `dolphin-logger` or `dolphin-logger server`):
+
+1.  **List available models:**
+    You can check the available models by calling the `/v1/models` endpoint:
+    ```bash
+    curl http://localhost:5001/v1/models 
+    ```
+    This will return a list of models as defined in your `~/.dolphin-logger/config.json`.
+
+2.  **Make chat completion requests:**
+    Use the proxy as you would the OpenAI API, but point your client's base URL to `http://localhost:5001` (or your configured port). Include the model name (as defined in the `model` field in your `config.json`) in your request.
+
+    *Example using a model named "claude" (defined in your config):*
+    ```bash
+    curl http://localhost:5001/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer any-valid-or-dummy-token" \ # Bearer token is not validated by proxy
+      -d '{
+        "model": "claude",
+        "messages": [{"role": "user", "content": "Hello from Claude!"}],
+        "stream": true
+      }'
+    ```
+
+    *Example using a local Ollama model named "dolphin" (defined in your config):*
+    ```bash
+    curl http://localhost:5001/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{
+        "model": "dolphin", 
+        "messages": [{"role": "user", "content": "Hello from Dolphin!"}],
+        "stream": false
+      }'
+    ```
+
+3.  **Check Server Health:**
+    Verify server status and configuration load:
+    ```bash
+    curl http://localhost:5001/health
+    ```
+    *Expected response (healthy):*
    ```json
-   {
-     "object": "list",
-     "data": [
-       { "id": "gpt4.1", "object": "model", "created": 1686935002, "owned_by": "openai", "provider": "openai", "provider_model": "gpt-4.1" },
-       { "id": "claude", "object": "model", "created": 1686935002, "owned_by": "openai", "provider": "openai", "provider_model": "claude-3-7-sonnet-latest" },
-       { "id": "gemini", "object": "model", "created": 1686935002, "owned_by": "openai", "provider": "openai", "provider_model": "gemini-2.5-pro-preview-05-06" },
-       { "id": "codestral", "object": "model", "created": 1686935002, "owned_by": "ollama", "provider": "ollama", "provider_model": "codestral:22b-v0.1-q5_K_M" },
-       { "id": "dolphin", "object": "model", "created": 1686935002, "owned_by": "ollama", "provider": "ollama", "provider_model": "dolphin3-24b" }
-     ]
-   }
-   ```
-
-4. **Make chat completion requests:**
-   Use the proxy as you would the OpenAI API, but point your requests to your local server. Include the model name (as defined in the `model` field in config.json) in your request.
-
-   Example using the "claude" model (assuming "claude" is a defined model in your `config.json`):
-   ```bash
-   curl http://localhost:5001/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -H "Authorization: Bearer any-valid-or-dummy-token" \ # Bearer token is not validated by the proxy but included for client compatibility
-     -d '{
-       "model": "claude",
-       "messages": [{"role": "user", "content": "Hello from Claude!"}],
-       "stream": true
-     }'
-   ```
-
-   Example using a local Ollama model (assuming "dolphin" is a defined model in your `config.json` pointing to an Ollama provider):
-   ```bash
-   curl http://localhost:5001/v1/chat/completions \
-     -H "Content-Type: application/json" \
-     -d '{
-       "model": "dolphin", 
-       "messages": [{"role": "user", "content": "Hello from Dolphin!"}],
-       "stream": false
-     }'
-   ```
-
-5. **Check Server Health:**
-   You can verify if the server is running and if its configuration was loaded correctly using the `/health` endpoint:
-   ```bash
-   curl http://localhost:5001/health
-   ```
-   *Expected response (healthy):*
-   ```json
-   {
-     "status": "ok",
-     "message": "Server is healthy, configuration loaded."
-   }
-   ```
-   *Expected response (if config has issues, e.g., no models loaded):*
-   ```json
-   {
-     "status": "error",
-     "message": "Server is running, but configuration might have issues (e.g., no models loaded)."
-   }
-   ```
+    {
+      "status": "ok",
+      "message": "Server is healthy, configuration loaded."
+    }
+    ```
+    *If configuration issues exist (e.g., no models loaded):*
+    ```json
+    {
+      "status": "error",
+      "message": "Server is running, but configuration might have issues (e.g., no models loaded)."
+    }
+    ```
 
 ## Environment Variables
 
-The proxy uses the following environment variables:
+The proxy primarily uses the following environment variables:
 
-- `PORT`: Server port (default: 5001).
-- **API Keys**: Any environment variable referenced in `config.json` using the `ENV:` prefix for `apiKey` fields (e.g., `OPENAI_API_KEY` if you have `"apiKey": "ENV:OPENAI_API_KEY"` in your config).
+- `PORT`: Sets the port on which the proxy server will listen (default: `5001`).
+- **API Keys (Dynamic)**: Any environment variable that you reference in your `config.json` using the `ENV:` prefix for `apiKey` fields (e.g., if you have `"apiKey": "ENV:OPENAI_API_KEY"`, then `OPENAI_API_KEY` becomes a relevant environment variable).
+- `HF_TOKEN` (for uploading logs): A Hugging Face Hub token with write access to the target dataset repository is required when using the `dolphin-logger upload` command.
 
 ## Logging
 
-All requests and responses for `/v1/chat/completions` are automatically logged to date-specific `.jsonl` files with UUID-based names. The logging is thread-safe and includes both request and response content.
+- All proxied requests and their corresponding responses to `/v1/chat/completions` are automatically logged.
+- Logs are stored in date-specific `.jsonl` files (one line per JSON object).
+- Log files are named with UUIDs to ensure uniqueness (e.g., `~/.dolphin-logger/logs/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.jsonl`).
+- Logging is thread-safe.
+- **Log Suppression:** If the first user message in a request starts with `### Task:`, that specific request/response pair will not be logged. This is useful for excluding specific interactions (e.g., meta-prompts or system commands) from your dataset.
 
 ## Uploading Logs
 
-You can upload your collected `.jsonl` log files to a Hugging Face Hub dataset using the built-in CLI:
+The `dolphin-logger upload` command facilitates uploading your collected logs to a Hugging Face Hub dataset.
 
 **Prerequisites:**
-- Ensure you have set the `HF_TOKEN` environment variable with a Hugging Face token that has write access to the target dataset repository.
-- The target dataset repository ID is configured in the code (default: `cognitivecomputations/dolphin-logger`).
+- **Hugging Face Token:** Ensure the `HF_TOKEN` environment variable is set with a Hugging Face token. This token must have write access to the target dataset repository.
+- **Target Repository:** The default target dataset is `cognitivecomputations/dolphin-logger`. This can be changed by modifying the `DATASET_REPO_ID` variable within the `dolphin_logger/upload.py` file if needed.
 
-**How to use:**
-1. Run the following command from anywhere:
-```bash
-dolphin-logger --upload
-```
-2. The CLI will:
-    - Find all `.jsonl` files in your logs directory (`~/.dolphin-logger/logs/`).
-    - Create a new branch in the specified Hugging Face dataset repository.
-    - Commit the log files to this new branch.
-    - Create a Pull Request (Draft) from the new branch to the main branch of the dataset repository.
-    - Print the URL of the created Pull Request.
-3. You will then need to review and merge the Pull Request on Hugging Face Hub.
+**Process:**
+1.  Run: `dolphin-logger upload`
+2.  The tool will:
+    *   Locate all `.jsonl` files in `~/.dolphin-logger/logs/`.
+    *   Create a new branch in the target Hugging Face dataset (e.g., `upload-logs-YYYYMMDD-HHMMSS`).
+    *   Commit the log files to this new branch.
+    *   Attempt to create a Pull Request (Draft) from this new branch to the dataset's main branch.
+    *   Print the URL of the created Pull Request.
+3.  You will need to visit the URL to review and merge the Pull Request on Hugging Face Hub.
 
 ## Error Handling
 
 The proxy includes comprehensive error handling that:
+The proxy includes comprehensive error handling:
 - Preserves original error messages from upstream APIs when available.
-- Provides detailed error information for debugging.
-- Maintains proper HTTP status codes.
+- Provides detailed error information in JSON format for debugging.
+- Maintains appropriate HTTP status codes for different error types.
+
+## Project Structure
+
+The `dolphin-logger` codebase is organized into several modules within the `src/dolphin_logger/` directory:
+
+- `cli.py`: Handles command-line argument parsing and dispatches to appropriate functions for different commands (`server`, `upload`, `init`, `config`).
+- `server.py`: Contains the Flask application setup, route definitions (`/health`, `/v1/models`, and the main proxy route), and the main server running logic.
+- `core_proxy.py`: Implements the core logic for proxying requests. This includes selecting the target API based on configuration, and separate handlers for Anthropic SDK requests and general REST API requests.
+- `config.py`: Manages configuration loading (from `~/.dolphin-logger/config.json`), creation of default configuration, and resolution of API keys from environment variables.
+- `logging_utils.py`: Provides utilities for managing log files (daily rotation, UUID naming) and determining if a request should be logged.
+- `upload.py`: Contains the logic for finding log files and uploading them to a Hugging Face Hub dataset.
+- `main.py`: The primary entry point for the `dolphin-logger` script, which calls the main CLI function from `cli.py`.
+- `__init__.py`: Makes `dolphin_logger` a Python package and defines the package version.
 
 ## Testing
 
@@ -244,26 +336,26 @@ The project includes a suite of unit and functional tests to ensure reliability 
 - Standard Python `unittest.mock` and `subprocess` modules.
 
 **Running Tests:**
-1. Ensure you have installed the development dependencies (if any, e.g., `pip install .[dev]` if a `dev` extra is defined in `pyproject.toml` containing `pytest` and `pytest-mock`). If not, install them manually:
-   ```bash
-   pip install pytest pytest-mock requests
-   ```
-2. Navigate to the root directory of the project.
-3. Run the tests using `pytest`:
-   ```bash
-   python -m pytest tests/
-   ```
-   Or simply:
-   ```bash
-   pytest tests/
-   ```
+1.  Ensure you have installed the development dependencies. If a `dev` extra is defined in `pyproject.toml` (e.g., `pip install .[dev]`), use that. Otherwise, install test tools manually:
+    ```bash
+    pip install pytest pytest-mock requests
+    ```
+2.  Navigate to the root directory of the project.
+3.  Run the tests:
+    ```bash
+    python -m pytest tests/
+    ```
+    Or more simply:
+    ```bash
+    pytest tests/
+    ```
 
 **Test Environment Notes:**
-- **Unit Tests:** These are self-contained and do not require external services. They mock file system operations, environment variables, and external API calls.
-- **Functional Tests:**
-    - These tests start an actual instance of the Dolphin Logger server on a free port.
-    - They use a temporary, isolated configuration directory and log directory for each test session, so they **do not interfere with your user-level `~/.dolphin-logger` setup.**
-    - The functional tests are designed to verify the server's behavior with configurations that point to **non-existent backend services.** This allows testing of the proxy's routing, error handling, and logging mechanisms when upstream services are unavailable, without requiring actual LLM API keys or running local LLMs.
+- **Unit Tests (`tests/test_*.py` excluding `test_functional.py`):** These are self-contained and mock external dependencies like file system operations, API calls, and environment variables. They test individual modules in isolation.
+- **Functional Tests (`tests/test_functional.py`):**
+    - These tests start an actual instance of the Dolphin Logger server on a free port using a subprocess.
+    - They use a temporary, isolated configuration directory and log directory for each test session, ensuring they **do not interfere with your user-level `~/.dolphin-logger` setup.**
+    - The functional tests primarily verify the server's behavior with configurations that point to **non-existent backend services.** This allows testing of the proxy's routing, error handling, and logging mechanisms when upstream services are unavailable, without requiring actual LLM API keys or running local LLMs during the test execution.
 
 ## License
 

@@ -33,7 +33,7 @@ dependencies = [
 "Bug Tracker" = "https://github.com/user/dolphin-logger/issues" # Placeholder URL
 
 [project.scripts]
-dolphin-logger = "dolphin_logger.main:cli"
+dolphin-logger = "dolphin_logger.cli:main_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]  # look for packages in the src directory
