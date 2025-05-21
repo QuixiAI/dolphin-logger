@@ -1,7 +1,7 @@
 import os
 import json
 import requests
-from flask import Flask, request, Response, stream_with_context
+from flask import Flask, request, Response, stream_with_context, jsonify
 from flask_cors import CORS
 from threading import Lock
 import uuid
@@ -155,11 +155,82 @@ def get_current_log_file():
     # Return the Path object directly
     return current_logfile_name
 
+
+def _get_target_api_config(requested_model_id, json_data, model_config_list):
+    """
+    Determines the target API URL, key, and model based on the requested model ID
+    and the server's model configuration.
+
+    Args:
+        requested_model_id (str): The model ID from the client's request.
+        json_data (dict): The parsed JSON data from the request.
+        model_config_list (list): The MODEL_CONFIG list.
+
+    Returns:
+        dict: A dictionary containing 'target_api_url', 'target_api_key',
+              'target_model', 'provider', and 'error' (if any).
+    """
+    for model_config in model_config_list:
+        if model_config.get("model") == requested_model_id:
+            provider = model_config.get("provider")
+            target_model = model_config.get("providerModel", requested_model_id)
+            api_key = model_config.get("apiKey")
+            api_base = model_config.get("apiBase")
+
+            if provider == "ollama":
+                return {
+                    "target_api_url": api_base or "http://localhost:11434/v1",
+                    "target_api_key": "",  # No API key for Ollama
+                    "target_model": target_model,
+                    "provider": provider,
+                    "error": None,
+                }
+            elif provider == "anthropic":
+                return {
+                    "target_api_url": "anthropic_sdk", # Special marker
+                    "target_api_key": api_key,
+                    "target_model": target_model,
+                    "provider": provider,
+                    "error": None,
+                }
+            else: # OpenAI-compatible
+                if not api_base:
+                    return {"error": f"apiBase not configured for model '{requested_model_id}'"}
+                return {
+                    "target_api_url": api_base,
+                    "target_api_key": api_key,
+                    "target_model": target_model,
+                    "provider": provider,
+                    "error": None,
+                }
+
+    if not model_config_list:
+        return {"error": f"No models configured. Cannot process request for model '{requested_model_id}'."}
+    return {"error": f"Model '{requested_model_id}' not found in configured models."}
+
+
 # Handle preflight OPTIONS requests explicitly
 @app.route('/', defaults={'path': ''}, methods=['OPTIONS'])
 @app.route('/<path:path>', methods=['OPTIONS'])
 def handle_options(path):
     resp = app.make_default_options_response()
+    return resp
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Provides a health check endpoint for the server."""
+    if MODEL_CONFIG: # Check if MODEL_CONFIG is loaded and not empty
+        response_data = {"status": "ok", "message": "Server is healthy, configuration loaded."}
+        status_code = 200
+    else:
+        # This case implies that load_config() might have returned an empty 'models' list
+        # or MODEL_CONFIG was not populated correctly.
+        response_data = {"status": "error", "message": "Server is running, but configuration might have issues (e.g., no models loaded)."}
+        status_code = 500
+    
+    resp = jsonify(response_data)
+    resp.status_code = status_code
+    # jsonify already sets Content-Type to application/json
     return resp
 
 @app.route('/', defaults={'path': ''}, methods=['GET', 'POST', 'PUT', 'DELETE'])
@@ -222,432 +293,365 @@ def proxy(path):
 
         return resp
 
-    # Initialize variables
-    target_api_url = None
-    target_api_key = None
-    target_model = None
-
     data = request.get_data()
-    json_data = json.loads(data.decode('utf-8')) if data else None
+    # We need json_data early for model selection and logging decisions
+    try:
+        # Decode once, use everywhere
+        decoded_data = data.decode('utf-8') if data else "{}" # Handle empty data
+        json_data = json.loads(decoded_data) if decoded_data else {}
+    except json.JSONDecodeError:
+        err_resp = Response(json.dumps({"error": "Invalid JSON in request body"}), status=400, content_type='application/json')
+        err_resp.headers['Access-Control-Allow-Origin'] = '*'
+        return err_resp
 
-    if request.method == 'POST' and json_data and 'model' in json_data:
-        requested_model_id = json_data.get('model')
-        print(f"Requested model ID: {requested_model_id}")
+    if request.method != 'POST' or 'model' not in json_data:
+        error_msg = "Proxying requires a POST request with a 'model' field in JSON body."
+        if request.method == 'POST' and 'model' not in json_data :
+            error_msg = "POST request JSON body must include a 'model' field."
 
-        model_found = False
-        for model_config in MODEL_CONFIG:
-            if model_config.get("model") == requested_model_id:
-                # Found the model in our config
-                model_found = True
-                provider = model_config.get("provider")
-
-                if provider == "ollama":
-                    # For Ollama, use the model name directly
-                    target_api_url = model_config.get("apiBase", "http://localhost:11434/v1") # Allow overriding default
-                    target_api_key = ""  # No API key needed for local Ollama
-                    target_model = model_config.get("providerModel", model_config.get("model"))
-                    print(f"Using Ollama: {target_model} at {target_api_url}")
-                else:
-                    if provider == "anthropic":
-                        # For Anthropic, use the Anthropic SDK
-                        target_api_url = "anthropic_sdk"  # Special marker to use SDK instead of REST API
-                        target_api_key = model_config.get("apiKey")
-                        target_model = model_config.get("providerModel", requested_model_id)
-                        print(f"Using Anthropic SDK: {target_model}")
-                    else:
-                        # For OpenAI-compatible APIs
-                        target_api_url = model_config.get("apiBase")
-                        target_api_key = model_config.get("apiKey")
-                        target_model = model_config.get("providerModel", requested_model_id)
-                        print(f"Using {provider}: {target_model} at {target_api_url}")
-
-                # Set the provider's actual model name in the request
-                if model_config.get("providerModel"):
-                    json_data['model'] = model_config.get("providerModel")
-                break
-
-        if not model_found:
-            # If no models configured, maybe try a default? Or just error out.
-            if not MODEL_CONFIG:
-                 error_msg = f"No models configured. Cannot process request for model '{requested_model_id}'."
-            else:
-                 error_msg = f"Model '{requested_model_id}' not found in configured models."
-            print(f"Error: {error_msg}")
-            resp = Response(
-                json.dumps({"error": error_msg}),
-                status=400,
-                content_type='application/json'
-            )
-            resp.headers['Access-Control-Allow-Origin'] = '*'
-            return resp
-
-        data = json.dumps(json_data).encode('utf-8')
-
-    if not target_api_url:
-        # This case might happen for non-POST requests or if logic fails above
-        error_msg = "Target API endpoint could not be determined."
         print(f"Error: {error_msg}")
-        if data:
-            print(f"Request data: {data.decode('utf-8')}")
-        resp = Response(
+        err_resp = Response(
             json.dumps({"error": error_msg}),
-            status=500,
+            status=400, # Bad Request
             content_type='application/json'
         )
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        return resp
+        err_resp.headers['Access-Control-Allow-Origin'] = '*'
+        return err_resp
 
-    # --- Request Proxying Logic ---
-    # (This part remains largely the same, but uses the determined target_api_url, target_api_key, etc.)
+    requested_model_id = json_data.get('model')
+    print(f"Requested model ID: {requested_model_id}")
 
-    # Determine the actual path for the target API
-    base_path_segment = target_api_url.rstrip('/').split('/')[-1] # e.g., 'v1'
-    path_parts = path.split('/', 1) # e.g. 'v1/chat/completions' -> ['v1', 'chat/completions']
-    actual_path = path_parts[1] if len(path_parts) > 1 else '' # 'chat/completions'
+    api_config = _get_target_api_config(requested_model_id, json_data, MODEL_CONFIG)
 
-    # Construct the final URL
-    base_url_for_request = target_api_url.rstrip('/')
-    if base_url_for_request.endswith(f'/{base_path_segment}'):
-         base_url_for_request = base_url_for_request[:-len(f'/{base_path_segment}')]
+    if api_config.get("error"):
+        error_msg = api_config["error"]
+        print(f"Error getting API config: {error_msg}")
+        err_resp = Response(
+            json.dumps({"error": error_msg}),
+            status=400, # Bad Request, as it's a config/request matching issue
+            content_type='application/json'
+        )
+        err_resp.headers['Access-Control-Allow-Origin'] = '*'
+        return err_resp
 
-    # Handle the special case where target_api_url is the SDK marker
-    if target_api_url != "anthropic_sdk":
-        url = f"{base_url_for_request}/{base_path_segment}/{actual_path}"
-        print(f"Proxying request to: {url}")
-    else:
-        url = "anthropic_sdk" # Keep the marker for logic below
-        print(f"Using Anthropic SDK for path: {actual_path}") # Log the intended path
+    target_api_url = api_config["target_api_url"]
+    target_api_key = api_config["target_api_key"]
+    target_model = api_config["target_model"] # This is the providerModel
+    # provider = api_config["provider"] # Available if needed for future logic
 
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in ['host', 'authorization', 'content-length', 'connection']} # Added 'connection'
-    if target_api_url != "anthropic_sdk":
-        headers['Host'] = url.split('//')[-1].split('/')[0] # Set Host for non-SDK requests
-    if target_api_key: # Only add Auth header if key exists
-        headers['Authorization'] = f'Bearer {target_api_key}'
+    # This will be the dict passed to Anthropic SDK or used to create JSON for REST
+    json_data_for_downstream = json_data.copy()
+    if target_model != requested_model_id: # If providerModel is different from what client sent
+        json_data_for_downstream['model'] = target_model
 
-    is_stream = json_data.get('stream', False) if json_data else False
+    # data_to_send_bytes will be used for REST POST/PUT bodies
+    data_to_send_bytes = json.dumps(json_data_for_downstream).encode('utf-8') if json_data_for_downstream else data
 
-    # Special handling for Anthropic SDK
+    is_stream = json_data.get('stream', False)
+
+    # --- Delegate to provider-specific handlers ---
+    # original_request_json_data is json_data (what the client originally sent)
+    # json_data_for_downstream is what we send to the target (potentially modified model field)
+    # data_to_send_bytes is the encoded version of json_data_for_downstream for REST
+
     if target_api_url == "anthropic_sdk":
-        print(f"DEBUG - Using Anthropic SDK for request")
-        if data:
-            print(f"DEBUG - Request data: {data.decode('utf-8')}")
+        return _handle_anthropic_sdk_request(
+            json_data_for_sdk=json_data_for_downstream, # This has the correct model for Anthropic
+            target_model=target_model, # This is the providerModel from config
+            target_api_key=target_api_key,
+            is_stream=is_stream,
+            original_request_json_data=json_data # For logging the original client request
+        )
+    else:
+        # Construct URL for REST APIs (Ollama, OpenAI-compatible)
+        # The `path` variable from Flask route is used here.
+        # e.g., if incoming request is to /v1/chat/completions, path is 'v1/chat/completions'
+        # target_api_url is the base URL of the target API, e.g., http://localhost:11434/v1
+        # The final URL should be target_api_url + actual path from the request
+        # Ensure no double slashes if target_api_url ends with / and path starts with /
+        url = f"{target_api_url.rstrip('/')}/{path.lstrip('/')}"
+        print(f"Proxying REST request to: {url}")
 
-        try:
-            json_data = json.loads(data.decode('utf-8')) if data else {}
-
-            # Initialize Anthropic client
-            if not target_api_key:
-                raise ValueError("Anthropic API key is missing in the configuration.")
-            anthropic_client = anthropic.Anthropic(api_key=target_api_key)
-
-            # Convert the request data to Anthropic SDK format
-            messages = json_data.get('messages', [])
-            max_tokens = json_data.get('max_tokens', 4096) # Default max_tokens
-            system_prompt = json_data.get('system') # Handle optional system prompt
-
-            # Prepare arguments for Anthropic client
-            anthropic_args = {
-                "model": target_model,
-                "messages": messages,
-                "max_tokens": max_tokens,
-                "stream": is_stream,
-            }
-            if system_prompt:
-                anthropic_args["system"] = system_prompt
-
-            if is_stream:
-                print(f"DEBUG - Creating streaming request to Anthropic API")
-                stream = anthropic_client.messages.create(**anthropic_args)
-
-                def generate():
-                    response_content = ''
-                    log_entry = {'request': json_data, 'response': None} # Prepare log entry
-                    try:
-                        for chunk in stream:
-                            if chunk.type == "content_block_delta":
-                                delta_content = chunk.delta.text
-                                response_content += delta_content
-
-                                # Format in OpenAI-compatible streaming format
-                                openai_compatible_chunk = {
-                                    "choices": [
-                                        {
-                                            "delta": {"content": delta_content},
-                                            "index": 0,
-                                            "finish_reason": None
-                                        }
-                                    ],
-                                    "id": f"chatcmpl-anthropic-{uuid.uuid4()}", # Unique chunk ID
-                                    "model": target_model, # Use the actual model name
-                                    "object": "chat.completion.chunk",
-                                    "created": int(datetime.now().timestamp())
-                                }
-                                yield f"data: {json.dumps(openai_compatible_chunk)}\n\n".encode('utf-8')
-                            elif chunk.type == "message_stop":
-                                # Get finish reason if available (might need adjustment based on SDK)
-                                finish_reason = "stop" # Default or extract from chunk if possible
-                                final_chunk = {
-                                     "choices": [
-                                        {
-                                            "delta": {}, # Empty delta for final chunk
-                                            "index": 0,
-                                            "finish_reason": finish_reason
-                                        }
-                                    ],
-                                    "id": f"chatcmpl-anthropic-{uuid.uuid4()}",
-                                    "model": target_model,
-                                    "object": "chat.completion.chunk",
-                                    "created": int(datetime.now().timestamp())
-                                }
-                                yield f"data: {json.dumps(final_chunk)}\n\n".encode('utf-8')
+        headers = {k: v for k, v in request.headers.items() if k.lower() not in ['host', 'authorization', 'content-length', 'connection', 'user-agent']}
+        headers['Host'] = target_api_url.split('//')[-1].split('/')[0] # Set Host to target API's host
+        if target_api_key:
+            headers['Authorization'] = f'Bearer {target_api_key}'
+        # Preserve user-agent if you want the target to see it, or set your own.
+        # headers['User-Agent'] = request.headers.get('User-Agent', 'DolphinLoggerProxy/1.0')
 
 
-                        # Send final [DONE] message
-                        yield b"data: [DONE]\n\n"
-
-                    finally: # Ensure logging happens even if stream breaks
-                        # Log the request/response
-                        if _should_log_request(json_data):
-                            log_entry['response'] = response_content # Store accumulated content
-                            log_file_path = get_current_log_file()
-                            with log_lock:
-                                with open(log_file_path, 'a') as log_file:
-                                    log_file.write(json.dumps(log_entry) + '\n')
-
-                resp = Response(
-                    stream_with_context(generate()),
-                    content_type='text/event-stream'
-                )
-                resp.headers['Access-Control-Allow-Origin'] = '*'
-                return resp
-            else:
-                print(f"DEBUG - Creating non-streaming request to Anthropic API")
-                response_obj = anthropic_client.messages.create(**anthropic_args)
-
-                # Convert Anthropic response to OpenAI format
-                response_content = response_obj.content[0].text if response_obj.content else ""
-                response_data = {
-                    "id": f"chatcmpl-anthropic-{response_obj.id}",
-                    "object": "chat.completion",
-                    "created": int(datetime.now().timestamp()), # Use current time
-                    "model": response_obj.model, # Use model from response
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {
-                                "role": response_obj.role, # Use role from response
-                                "content": response_content
-                            },
-                            "finish_reason": response_obj.stop_reason
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": response_obj.usage.input_tokens,
-                        "completion_tokens": response_obj.usage.output_tokens,
-                        "total_tokens": response_obj.usage.input_tokens + response_obj.usage.output_tokens
-                    }
-                }
-
-                print(f"DEBUG - Response from Anthropic API received")
-                print(f"DEBUG - Response preview: {response_content[:500]}...")
-
-                # Log the request if needed
-                if _should_log_request(json_data):
-                    log_file_path = get_current_log_file()
-                    with log_lock:
-                        with open(log_file_path, 'a') as log_file:
-                            log_file.write(json.dumps({
-                                'request': json_data,
-                                'response': response_content
-                            }) + '\n')
-
-                resp = Response(
-                    json.dumps(response_data),
-                    content_type='application/json'
-                )
-                resp.headers['Access-Control-Allow-Origin'] = '*'
-                return resp
-
-        except Exception as e:
-            print(f"ERROR DETAILS (Anthropic SDK):")
-            print(f"  Error type: {type(e).__name__}")
-            print(f"  Error message: {str(e)}")
-            if data:
-                print(f"  Full request data: {data.decode('utf-8')}")
-
-            error_status = 500
-            error_content_type = 'application/json'
-            error_body = {"error": {"message": str(e), "type": type(e).__name__}}
-
-            resp = Response(
-                json.dumps(error_body),
-                status=error_status,
-                content_type=error_content_type
-            )
-            resp.headers['Access-Control-Allow-Origin'] = '*'
-            return resp
-
-    # Standard REST API handling for other providers (Ollama, OpenAI-compatible)
-    print(f"DEBUG - Sending request: {request.method} {url}")
-    print(f"DEBUG - Headers: {headers}")
-    if data:
-        print(f"DEBUG - Request data: {data.decode('utf-8')}")
-
-    try:
-        response = requests.request(
+        return _handle_rest_api_request(
             method=request.method,
             url=url,
             headers=headers,
-            data=data,
-            stream=is_stream,
-            timeout=300 # Add a timeout
+            data_bytes=data_to_send_bytes, # Use encoded bytes with potentially modified model
+            is_stream=is_stream,
+            original_request_json_data=json_data # For logging original client request
         )
 
-        # Print response status for debugging
-        print(f"DEBUG - Response status: {response.status_code}")
 
-        # Print a snippet of the response for debugging
-        if not is_stream:
-            try:
-                print(f"DEBUG - Response preview: {response.text[:500]}...")
-            except Exception as preview_err:
-                print(f"DEBUG - Could not get response preview: {preview_err}")
+def _handle_anthropic_sdk_request(json_data_for_sdk, target_model, target_api_key, is_stream, original_request_json_data):
+    """
+    Handles requests to the Anthropic SDK.
+    `json_data_for_sdk` is the dictionary to be used for constructing the Anthropic SDK call.
+    `original_request_json_data` is the dictionary from the initial request, used for logging.
+    """
+    print(f"DEBUG - Using Anthropic SDK for request with model: {target_model}")
+    # If data is sensitive, avoid logging the full body here or use a preview.
+    # print(f"DEBUG - Request data for SDK: {json.dumps(json_data_for_sdk)}")
 
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+    try:
+        if not target_api_key:
+            # This is a server configuration error, should ideally be caught at startup
+            # or result in a clear error message if a model needing a key is chosen without one.
+            raise ValueError("Anthropic API key is missing in the configuration for the requested model.")
+        
+        anthropic_client = anthropic.Anthropic(api_key=target_api_key)
 
-        # --- Response Handling & Logging ---
-        log_entry = {'request': json_data, 'response': None} # Prepare log entry
+        messages = json_data_for_sdk.get('messages', [])
+        max_tokens = json_data_for_sdk.get('max_tokens', 4096) # Anthropic's default
+        system_prompt = json_data_for_sdk.get('system') # Optional system prompt
+
+        anthropic_args = {
+            "model": target_model, # This is the providerModel from config
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "stream": is_stream,
+        }
+        if system_prompt: # Add system prompt only if provided
+            anthropic_args["system"] = system_prompt
 
         if is_stream:
-            def generate():
-                response_content = ''
-                try:
-                    for line in response.iter_lines():
-                        if line:
-                            # Yield raw line first
-                            yield line + b'\n\n' # Ensure SSE format
+            print(f"DEBUG - Creating streaming request to Anthropic API: model={target_model}")
+            sdk_stream = anthropic_client.messages.create(**anthropic_args)
 
-                            # Attempt to parse for logging
-                            if line.startswith(b'data: '):
-                                line_data = line.decode('utf-8')[6:]
-                                if line_data != '[DONE]':
-                                    try:
-                                        parsed = json.loads(line_data)
-                                        choices = parsed.get('choices', [])
-                                        if choices and isinstance(choices, list) and len(choices) > 0:
-                                            delta = choices[0].get('delta', {})
-                                            if delta and isinstance(delta, dict):
-                                                 delta_content = delta.get('content', '')
-                                                 if delta_content and isinstance(delta_content, str):
-                                                     response_content += delta_content
-                                    except (json.JSONDecodeError, KeyError, IndexError, TypeError) as e:
-                                        print(f"Error processing stream line for logging: {line_data}, Error: {e}")
-                                        pass # Continue yielding lines even if parsing fails
-                finally: # Ensure logging happens
-                    if _should_log_request(json_data):
-                        log_entry['response'] = response_content
+            def generate_anthropic_stream_response():
+                response_content_parts = []
+                log_entry = {'request': original_request_json_data, 'response': None}
+                try:
+                    for chunk in sdk_stream:
+                        if chunk.type == "content_block_delta":
+                            delta_content = chunk.delta.text
+                            response_content_parts.append(delta_content)
+                            openai_compatible_chunk = {
+                                "choices": [{"delta": {"content": delta_content}, "index": 0, "finish_reason": None}],
+                                "id": f"chatcmpl-anthropic-{uuid.uuid4()}",
+                                "model": target_model, 
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp())
+                            }
+                            yield f"data: {json.dumps(openai_compatible_chunk)}\n\n".encode('utf-8')
+                        elif chunk.type == "message_stop":
+                            # Anthropic SDK provides stop_reason in the message object upon stop
+                            finish_reason = chunk.message.stop_reason if hasattr(chunk, 'message') and hasattr(chunk.message, 'stop_reason') else "stop"
+                            final_chunk = {
+                                 "choices": [{"delta": {}, "index": 0, "finish_reason": finish_reason}],
+                                "id": f"chatcmpl-anthropic-{uuid.uuid4()}",
+                                "model": target_model,
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp())
+                            }
+                            yield f"data: {json.dumps(final_chunk)}\n\n".encode('utf-8')
+                    yield b"data: [DONE]\n\n"
+                finally:
+                    if _should_log_request(original_request_json_data):
+                        log_entry['response'] = "".join(response_content_parts)
                         log_file_path = get_current_log_file()
                         with log_lock:
                             with open(log_file_path, 'a') as log_file:
                                 log_file.write(json.dumps(log_entry) + '\n')
 
-            resp = Response(
-                stream_with_context(generate()),
-                content_type=response.headers.get('Content-Type', 'text/event-stream') # Default to event-stream
-            )
-            # Copy relevant headers from the original response
-            for hdr in ['Cache-Control', 'Content-Type']: # Add others if needed
-                 if hdr in response.headers:
-                     resp.headers[hdr] = response.headers[hdr]
+            resp = Response(stream_with_context(generate_anthropic_stream_response()), content_type='text/event-stream')
             resp.headers['Access-Control-Allow-Origin'] = '*'
             return resp
-        else:
-            # Handle non-streaming response
-            complete_response = ''
-            response_data = {}
+        else: # Non-streaming Anthropic request
+            print(f"DEBUG - Creating non-streaming request to Anthropic API: model={target_model}")
+            response_obj = anthropic_client.messages.create(**anthropic_args)
+            
+            response_content = response_obj.content[0].text if response_obj.content and len(response_obj.content) > 0 and hasattr(response_obj.content[0], 'text') else ""
+            
+            # Convert Anthropic response to OpenAI-compatible format
+            response_data_converted = {
+                "id": f"chatcmpl-anthropic-{response_obj.id}",
+                "object": "chat.completion",
+                "created": int(datetime.now().timestamp()), # Consider using a more accurate timestamp if available
+                "model": response_obj.model, # Use model from Anthropic's response
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": response_obj.role, "content": response_content},
+                    "finish_reason": response_obj.stop_reason 
+                }],
+                "usage": { # Anthropic provides usage data
+                    "prompt_tokens": response_obj.usage.input_tokens,
+                    "completion_tokens": response_obj.usage.output_tokens,
+                    "total_tokens": response_obj.usage.input_tokens + response_obj.usage.output_tokens
+                }
+            }
+            print(f"DEBUG - Response from Anthropic API received. Preview: {response_content[:100]}...")
+            if _should_log_request(original_request_json_data):
+                log_file_path = get_current_log_file()
+                with log_lock:
+                    log_file.write(json.dumps({'request': original_request_json_data, 'response': response_content}) + '\n')
+            
+            resp = Response(json.dumps(response_data_converted), content_type='application/json')
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            return resp
+
+    except anthropic.APIError as e: # Catch specific Anthropic errors
+        print(f"ERROR DETAILS (Anthropic SDK - APIError): Status: {e.status_code}, Type: {e.type}, Message: {e.message}")
+        error_body = {"error": {"message": e.message, "type": e.type or type(e).__name__, "code": e.status_code}}
+        resp = Response(json.dumps(error_body), status=e.status_code or 500, content_type='application/json')
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp
+    except Exception as e: # Catch other errors like ValueError from misconfiguration
+        print(f"ERROR DETAILS (Anthropic SDK - General): Type: {type(e).__name__}, Message: {str(e)}")
+        if original_request_json_data:
+            print(f"  Full request data (original for logging): {json.dumps(original_request_json_data)}")
+        error_body = {"error": {"message": str(e), "type": type(e).__name__}}
+        resp = Response(json.dumps(error_body), status=500, content_type='application/json')
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        return resp
+
+
+def _handle_rest_api_request(method, url, headers, data_bytes, is_stream, original_request_json_data):
+    """
+    Handles requests to OpenAI-compatible (including Ollama) REST APIs.
+    `data_bytes` is the already encoded byte string for the request body.
+    `original_request_json_data` is the parsed JSON from the original client request, for logging.
+    """
+    print(f"DEBUG - Sending REST request: {method} {url}")
+    # print(f"DEBUG - Headers: {headers}") # Potentially sensitive (e.g. API keys in some non-Bearer setups)
+    # if data_bytes:
+    #     try:
+    #         print(f"DEBUG - Request data preview: {data_bytes.decode('utf-8')[:200]}...")
+    #     except UnicodeDecodeError:
+    #         print(f"DEBUG - Request data: <binary or non-utf8 data>")
+
+    try:
+        api_response = requests.request(
+            method=method,
+            url=url,
+            headers=headers,
+            data=data_bytes,
+            stream=is_stream,
+            timeout=300 # Standard timeout
+        )
+        print(f"DEBUG - REST API Response status: {api_response.status_code}")
+        # if not is_stream:
+        #     try:
+        #         print(f"DEBUG - REST API Response preview: {api_response.text[:200]}...")
+        #     except Exception as preview_err:
+        #         print(f"DEBUG - Could not get REST API response preview: {preview_err}")
+
+        api_response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+        log_entry = {'request': original_request_json_data, 'response': None}
+
+        if is_stream:
+            def generate_rest_stream_response():
+                response_content_parts = []
+                try:
+                    for line in api_response.iter_lines():
+                        if line:
+                            yield line + b'\n\n' # Pass through to client, maintaining SSE
+                            if line.startswith(b'data: '):
+                                line_data_str = line.decode('utf-8', errors='replace')[6:]
+                                if line_data_str.strip() != '[DONE]':
+                                    try:
+                                        parsed_chunk = json.loads(line_data_str)
+                                        choices = parsed_chunk.get('choices', [])
+                                        if choices and isinstance(choices, list) and len(choices) > 0:
+                                            delta = choices[0].get('delta', {})
+                                            if delta and isinstance(delta, dict):
+                                                delta_content = delta.get('content', '')
+                                                if delta_content and isinstance(delta_content, str):
+                                                    response_content_parts.append(delta_content)
+                                    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                                        # Error parsing a stream chunk for logging, but stream to client continues
+                                        # print(f"Warning: Error processing stream line for REST logging: {line_data_str}, Error: {e_parse}")
+                                        pass # Don't let logging error break the stream to client
+                finally:
+                    if _should_log_request(original_request_json_data):
+                        log_entry['response'] = "".join(response_content_parts)
+                        log_file_path = get_current_log_file()
+                        with log_lock:
+                            with open(log_file_path, 'a') as log_file:
+                                log_file.write(json.dumps(log_entry) + '\n')
+            
+            resp = Response(stream_with_context(generate_rest_stream_response()), content_type=api_response.headers.get('Content-Type', 'text/event-stream'))
+            for hdr_key in ['Cache-Control', 'Content-Type', 'Transfer-Encoding', 'Date', 'Server']: # Common headers to propagate
+                if hdr_key in api_response.headers:
+                    resp.headers[hdr_key] = api_response.headers[hdr_key]
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            return resp
+        else: # Non-streaming REST response
+            complete_response_text = ''
             try:
-                response_data = response.json()
-                choices = response_data.get('choices', [])
+                # Try to parse as JSON, as this is typical for chat completion APIs
+                response_json = api_response.json()
+                # Standard OpenAI format for extracting content
+                choices = response_json.get('choices', [])
                 if choices and isinstance(choices, list) and len(choices) > 0:
                     message = choices[0].get('message', {})
                     if message and isinstance(message, dict):
-                        complete_response = message.get('content', '')
-                log_entry['response'] = complete_response # Log extracted content or full JSON? Let's log extracted.
+                        complete_response_text = message.get('content', '')
+                # If not OpenAI format, or content not found, log the whole JSON
+                if not complete_response_text:
+                    complete_response_text = response_json # Or json.dumps(response_json) for string
+                log_entry['response'] = complete_response_text
             except json.JSONDecodeError:
-                print("Warning: Response was not JSON. Logging raw text.")
-                complete_response = response.text
-                log_entry['response'] = complete_response # Log raw text
+                # If response is not JSON, log raw text
+                print("Warning: REST API Response was not JSON. Logging raw text.")
+                complete_response_text = api_response.text
+                log_entry['response'] = complete_response_text
 
-            # Log the request/response
-            if _should_log_request(json_data):
+            if _should_log_request(original_request_json_data):
                 log_file_path = get_current_log_file()
                 with log_lock:
                     with open(log_file_path, 'a') as log_file:
                         log_file.write(json.dumps(log_entry) + '\n')
-
-            # Create a Flask Response object to add headers
-            resp = Response(
-                response.content, # Send original content back
-                content_type=response.headers.get('Content-Type', 'application/json'),
-                status=response.status_code
-            )
+            
+            # Return the raw response content from the target API to the client
+            resp = Response(api_response.content, content_type=api_response.headers.get('Content-Type', 'application/json'), status=api_response.status_code)
             resp.headers['Access-Control-Allow-Origin'] = '*'
             return resp
 
     except requests.exceptions.RequestException as e:
-        print(f"ERROR DETAILS (Requests):")
-        print(f"  Error type: {type(e).__name__}")
-        print(f"  Error message: {str(e)}")
-        print(f"  Method: {request.method}")
-        print(f"  URL: {url if target_api_url != 'anthropic_sdk' else 'Anthropic SDK Call'}")
-        # Avoid printing sensitive headers like Authorization
-        safe_headers = {k: v for k, v in headers.items() if k.lower() != 'authorization'}
-        print(f"  Safe request headers: {safe_headers}")
-        if data:
-            # Be cautious about logging potentially large/sensitive data
-            try:
-                 print(f"  Request data preview: {data.decode('utf-8')[:500]}...")
-            except:
-                 print("  Could not decode request data preview.")
-
+        # Handle network errors, timeouts, etc.
+        print(f"ERROR DETAILS (REST API - RequestException): Type: {type(e).__name__}, Message: {str(e)}, URL: {url}")
+        # safe_headers_for_err = {k: v for k,v in headers.items() if k.lower() != 'authorization'} # Avoid logging auth
+        # print(f"  Safe request headers: {safe_headers_for_err}")
+        # if data_bytes:
+        #     try:
+        #         print(f"  Request data preview: {data_bytes.decode('utf-8')[:200]}...")
+        #     except:
+        #         print("  Could not decode request data preview for error log.")
 
         error_content_type = 'application/json'
-        error_status = 500
-        error_body = {"error": {"message": str(e), "type": type(e).__name__}}
+        error_status = 502 # Bad Gateway, as we failed to get a response from upstream
+        error_body_msg = f"Error connecting to upstream API: {str(e)}"
+        error_body = {"error": {"message": error_body_msg, "type": type(e).__name__}}
 
-        # Try to get more specific error info from the response, if available
         if e.response is not None:
-            print(f"  Response status code: {e.response.status_code}")
-            error_status = e.response.status_code
+            # If the error is an HTTPError (e.g., 4xx, 5xx from upstream), use its details
+            print(f"  Upstream response status code: {e.response.status_code}")
+            error_status = e.response.status_code # Use upstream's status code
             error_content_type = e.response.headers.get('Content-Type', 'application/json')
             try:
-                # Try to parse JSON error from upstream
-                error_body = e.response.json()
-                print(f"  Upstream error response: {json.dumps(error_body)}")
+                error_body = e.response.json() # Try to parse upstream error
+                print(f"  Upstream error response JSON: {json.dumps(error_body)}")
             except json.JSONDecodeError:
-                # If not JSON, use the text content
                 error_body = {"error": {"message": e.response.text, "type": "upstream_error"}}
-                print(f"  Upstream error response (text): {e.response.text}")
-
-        resp = Response(
-            json.dumps(error_body),
-            status=error_status,
-            content_type=error_content_type
-        )
+                print(f"  Upstream error response Text: {e.response.text}")
+        
+        resp = Response(json.dumps(error_body), status=error_status, content_type=error_content_type)
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp
-    except Exception as e: # Catch any other unexpected errors
-        print(f"UNEXPECTED SERVER ERROR:")
-        print(f"  Error type: {type(e).__name__}")
-        print(f"  Error message: {str(e)}")
+    except Exception as e: # Catch-all for any other unexpected errors in this handler
+        print(f"UNEXPECTED REST API HANDLER ERROR: Type: {type(e).__name__}, Message: {str(e)}")
         import traceback
-        traceback.print_exc() # Print stack trace for debugging
-
-        resp = Response(
-            json.dumps({"error": {"message": "An unexpected internal server error occurred.", "type": type(e).__name__}}),
-            status=500,
-            content_type='application/json'
-        )
+        traceback.print_exc()
+        resp = Response(json.dumps({"error": {"message": "An unexpected error occurred in the REST API handler.", "type": type(e).__name__}}), status=500, content_type='application/json')
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp
 
