@@ -2,7 +2,15 @@
 
 ![Dolphin Logger](chat-logger.png)
 
-This proxy allows you to record your chats to create datasets based on your conversations with any Chat LLM. It supports multiple LLM backends including OpenAI, Anthropic, Google and Ollama.
+A proxy server that logs your LLM conversations to create datasets from your interactions with any Chat LLM. Supports multiple LLM backends including OpenAI, Anthropic, Google, and Ollama with full OpenAI API compatibility.
+
+## Quick Start
+
+1. **Install:** `pip install .` (or `pip install dolphin-logger` when published)
+2. **Initialize:** `dolphin-logger init`
+3. **Configure:** Edit `~/.dolphin-logger/config.json` with your API keys
+4. **Run:** `dolphin-logger` (starts server on http://localhost:5001)
+5. **Use:** Point your LLM client to `http://localhost:5001` instead of the original API
 
 ## Features
 
@@ -68,53 +76,46 @@ Dolphin Logger uses a `config.json` file to define available LLM models and thei
 
 **3. Editing `config.json`:**
 
-   Open `~/.dolphin_logger/config.json` and customize it with your desired models, API endpoints, and API keys. A `config.json.example` is included in the root of this repository for reference.
+   Open `~/.dolphin-logger/config.json` and customize it with your desired models, API endpoints, and API keys. A `config.json.example` is included in the root of this repository for reference.
 
    *Example `config.json` structure:*
    ```json
    {
+     "huggingface_repo": "cognitivecomputations/dolphin-logger",
      "models": [
-   # ... (model examples remain the same as before)
-    {
-      "provider": "openai",
-      "providerModel": "gpt-4.1",
-      "model": "gpt4.1",
-      "apiBase": "https://api.openai.com/v1",
-      "apiKey": "your_openai_api_key_here"
-    },
-    {
-      "provider": "anthropic",
-      "providerModel": "claude-3-7-sonnet-latest",
-      "model": "claude",
-      "apiKey": "your_anthropic_api_key_here"
-    },
-    {
-      "provider": "openai",
-      "providerModel": "claude-3-7-sonnet-latest",
-      "model": "claude-hyprlab",
-      "apiBase": "https://api.hyprlab.io/private",
-      "apiKey": "your_anthropic_api_key_here"
-    },
-    {
-      "provider": "openai",
-      "providerModel": "gemini-2.5-pro-preview-05-06",
-      "model": "gemini",
-      "apiBase": "https://generativelanguage.googleapis.com/v1beta/",
-      "apiKey": "your_google_api_key_here"
-    },
-    {
-      "provider": "ollama",
-      "providerModel": "codestral:22b-v0.1-q5_K_M",
-      "model": "codestral"
-    },
-    {
-      "provider": "ollama",
-      "providerModel": "dolphin3-24b",
-      "model": "dolphin"
-    }
-  ]
-}
-```
+       {
+         "provider": "anthropic",
+         "providerModel": "claude-3-7-sonnet-latest",
+         "model": "claude",
+         "apiKey": "ENV:ANTHROPIC_API_KEY"
+       },
+       {
+         "provider": "openai",
+         "providerModel": "gpt-4.1",
+         "model": "gpt",
+         "apiBase": "https://api.openai.com/v1/",
+         "apiKey": "ENV:OPENAI_API_KEY"
+       },
+       {
+         "provider": "openai",
+         "providerModel": "gemini-2.5-pro-preview-05-06",
+         "model": "gemini",
+         "apiBase": "https://generativelanguage.googleapis.com/v1beta/",
+         "apiKey": "ENV:GOOGLE_API_KEY"
+       },
+       {
+         "provider": "ollama",
+         "providerModel": "codestral:22b-v0.1-q5_K_M",
+         "model": "codestral"
+       },
+       {
+         "provider": "ollama",
+         "providerModel": "dolphin3",
+         "model": "dolphin"
+       }
+     ]
+   }
+   ```
 
 Configuration fields:
 - `provider`: The provider type:
@@ -228,28 +229,39 @@ Once the server is running (using `dolphin-logger` or `dolphin-logger server`):
 2.  **Make chat completion requests:**
     Use the proxy as you would the OpenAI API, but point your client's base URL to `http://localhost:5001` (or your configured port). Include the model name (as defined in the `model` field in your `config.json`) in your request.
 
-    *Example using a model named "claude" (defined in your config):*
+    *cURL example using a model named "claude":*
     ```bash
     curl http://localhost:5001/v1/chat/completions \
       -H "Content-Type: application/json" \
-      -H "Authorization: Bearer any-valid-or-dummy-token" \ # Bearer token is not validated by proxy
+      -H "Authorization: Bearer dummy-token" \
       -d '{
         "model": "claude",
         "messages": [{"role": "user", "content": "Hello from Claude!"}],
-        "stream": true
-      }'
-    ```
-
-    *Example using a local Ollama model named "dolphin" (defined in your config):*
-    ```bash
-    curl http://localhost:5001/v1/chat/completions \
-      -H "Content-Type: application/json" \
-      -d '{
-        "model": "dolphin", 
-        "messages": [{"role": "user", "content": "Hello from Dolphin!"}],
         "stream": false
       }'
     ```
+
+    *Python OpenAI SDK example:*
+    ```python
+    from openai import OpenAI
+
+    # Point to your local dolphin-logger proxy
+    client = OpenAI(
+        base_url="http://localhost:5001/v1",
+        api_key="dummy-key"  # Not validated by proxy
+    )
+
+    response = client.chat.completions.create(
+        model="claude",  # Use model name from your config
+        messages=[{"role": "user", "content": "Hello!"}]
+    )
+    print(response.choices[0].message.content)
+    ```
+
+    *Using with popular tools:*
+    - **Cursor/Continue.dev:** Set API base URL to `http://localhost:5001/v1`
+    - **LangChain:** Use `openai_api_base="http://localhost:5001/v1"`
+    - **Any OpenAI-compatible client:** Point base URL to your proxy
 
 3.  **Check Server Health:**
     Verify server status and configuration load:
@@ -305,9 +317,51 @@ The `dolphin-logger upload` command facilitates uploading your collected logs to
     *   Print the URL of the created Pull Request.
 3.  You will need to visit the URL to review and merge the Pull Request on Hugging Face Hub.
 
+## Troubleshooting
+
+**Common Issues and Solutions:**
+
+1. **"Configuration file not found" error:**
+   - Run `dolphin-logger init` to create the default configuration
+   - Check that `~/.dolphin-logger/config.json` exists with `dolphin-logger config --path`
+
+2. **"Template config file not found" error:**
+   - Ensure you've installed the package properly with `pip install .`
+   - Verify the `config.json.example` file exists in the project root
+
+3. **API authentication errors:**
+   - Verify your API keys are correctly set in environment variables
+   - Check that environment variable names match those specified in config (e.g., `ENV:OPENAI_API_KEY` requires `OPENAI_API_KEY` to be set)
+   - Use `dolphin-logger config --validate` to check API key resolution
+
+4. **Server won't start / Port already in use:**
+   - Check if another process is using port 5001: `lsof -i :5001`
+   - Set a different port: `PORT=5002 dolphin-logger`
+   - Kill existing processes if needed
+
+5. **Models not appearing in `/v1/models` endpoint:**
+   - Validate your configuration: `dolphin-logger config --validate`
+   - Check that your config.json has a properly formatted "models" array
+   - Restart the server after configuration changes
+
+6. **Ollama models not working:**
+   - Ensure Ollama is running: `ollama list`
+   - Check that the model names in your config match available Ollama models
+   - Verify Ollama is accessible at `http://localhost:11434`
+
+7. **Logs not being created:**
+   - Check that requests don't start with "### Task:" (these are suppressed by default)
+   - Verify the `~/.dolphin-logger/logs/` directory exists and is writable
+   - Look for error messages in the server output
+
+**Getting Help:**
+- Enable verbose logging with detailed error messages
+- Check the server console output for specific error details
+- Validate your configuration with `dolphin-logger config --validate`
+- Ensure all required environment variables are set
+
 ## Error Handling
 
-The proxy includes comprehensive error handling that:
 The proxy includes comprehensive error handling:
 - Preserves original error messages from upstream APIs when available.
 - Provides detailed error information in JSON format for debugging.
