@@ -107,9 +107,17 @@ def proxy(path: str | None = None): # path can be None
             original_request_json_data=original_request_json
         )
     else:
-        # Ensure path is not None before using it in URL construction
-        downstream_path_segment = path.lstrip('/') if path else ''
-        downstream_url = f"{target_api_url.rstrip('/')}/{downstream_path_segment}"
+        # Handle URL construction more intelligently
+        # If the target_api_url already contains a path (like /private/chat/completions),
+        # don't append the original request path
+        if path and path.startswith('v1/'):
+            # For requests to /v1/chat/completions, extract just the endpoint part
+            endpoint_part = path[3:]  # Remove 'v1/' prefix
+            downstream_url = f"{target_api_url.rstrip('/')}/{endpoint_part}"
+        else:
+            # For other paths, use them as-is
+            downstream_path_segment = path.lstrip('/') if path else ''
+            downstream_url = f"{target_api_url.rstrip('/')}/{downstream_path_segment}"
         print(f"Proxying REST request to: {downstream_url}")
 
         downstream_headers = {
@@ -148,4 +156,3 @@ def run_server_main(): # Renamed to avoid conflict with any 'main' in cli.py if 
     print(f"Logs will be stored in: {get_logs_dir()}")   
     
     app.run(host='0.0.0.0', port=port, debug=False)
-```

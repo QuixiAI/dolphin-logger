@@ -66,3 +66,11 @@ def load_config() -> dict:
                         print(f"Warning: Environment variable '{env_var_name}' not found for model '{model_entry.get('model', 'Unknown Model')}'. API key set to None.")
     
     return config_data
+
+def get_huggingface_repo() -> str:
+    """
+    Returns the Hugging Face repository from the configuration.
+    If not specified in config, returns the default value.
+    """
+    config = load_config()
+    return config.get("huggingface_repo", "cognitivecomputations/dolphin-logger")

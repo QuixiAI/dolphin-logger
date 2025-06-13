@@ -80,13 +80,29 @@ def handle_anthropic_sdk_request(
         # Ensure anthropic client is initialized correctly (as per its docs if specific settings needed)
         anthropic_client = anthropic.Anthropic(api_key=target_api_key)
 
-        messages = json_data_for_sdk.get('messages', [])
+        original_messages = json_data_for_sdk.get('messages', [])
         max_tokens = json_data_for_sdk.get('max_tokens', 4096) # Default from Anthropic
-        system_prompt = json_data_for_sdk.get('system') # Optional
+        
+        # Extract system messages from the messages array and separate them
+        system_messages = []
+        non_system_messages = []
+        
+        for message in original_messages:
+            if message.get('role') == 'system':
+                system_messages.append(message.get('content', ''))
+            else:
+                non_system_messages.append(message)
+        
+        # Combine system messages into a single system prompt
+        system_prompt = '\n\n'.join(system_messages) if system_messages else None
+        
+        # Also check for top-level system parameter (in case it's already properly formatted)
+        if not system_prompt and json_data_for_sdk.get('system'):
+            system_prompt = json_data_for_sdk.get('system')
 
         anthropic_args = {
             "model": target_model, # This is the providerModel
-            "messages": messages,
+            "messages": non_system_messages,  # Only non-system messages
             "max_tokens": max_tokens,
             "stream": is_stream,
         }
@@ -157,10 +173,16 @@ def handle_anthropic_sdk_request(
             return resp
 
     except anthropic.APIError as e: # Specific error handling for Anthropic
-        print(f"ERROR DETAILS (Anthropic SDK - APIError): Status: {e.status_code}, Type: {e.type}, Message: {e.message}")
-        error_body = {"error": {"message": e.message, "type": e.type or type(e).__name__, "code": e.status_code}}
+        # Extract error details safely - BadRequestError and other APIError subclasses may not have 'type' attribute
+        error_type = getattr(e, 'type', type(e).__name__)
+        error_message = getattr(e, 'message', str(e))
+        status_code = getattr(e, 'status_code', 500)
+        
+        print(f"ERROR DETAILS (Anthropic SDK - APIError): Status: {status_code}, Type: {error_type}, Message: {error_message}")
+        
+        error_body = {"error": {"message": error_message, "type": error_type, "code": status_code}}
         resp = jsonify(error_body)
-        resp.status_code = e.status_code or 500 # Use status_code from error if available
+        resp.status_code = status_code
         resp.headers['Access-Control-Allow-Origin'] = '*'
         return resp
     except Exception as e: # Catch-all for other errors (e.g., ValueError, network issues not caught by APIError)

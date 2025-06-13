@@ -1,4 +1,5 @@
 {
+  "huggingface_repo": "cognitivecomputations/dolphin-logger",
   "models": [
     {
       "provider": "anthropic",

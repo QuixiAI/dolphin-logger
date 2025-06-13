@@ -4,10 +4,8 @@ from datetime import datetime
 from huggingface_hub import HfApi, CommitOperationAdd
 from pathlib import Path
 
-# Import get_logs_dir from the new config.py
-from .config import get_logs_dir
-
-DATASET_REPO_ID = "cognitivecomputations/dolphin-logger" # Default, consider making configurable
+# Import get_logs_dir and get_huggingface_repo from the new config.py
+from .config import get_logs_dir, get_huggingface_repo
 
 def find_jsonl_files(log_dir: str | Path) -> list[str]:
     """Finds all .jsonl files in the specified log directory."""
@@ -17,7 +15,9 @@ def upload_logs():
     """Uploads .jsonl files from the log directory to Hugging Face Hub and creates a PR."""
     api = HfApi()
     # Use get_logs_dir from .config
-    log_dir_path = get_logs_dir() 
+    log_dir_path = get_logs_dir()
+    # Get the configurable Hugging Face repository
+    dataset_repo_id = get_huggingface_repo()
     jsonl_files = find_jsonl_files(log_dir_path)
 
     if not jsonl_files:
@@ -31,9 +31,9 @@ def upload_logs():
 
     try:
         try:
-            repo_info = api.repo_info(repo_id=DATASET_REPO_ID, repo_type="dataset")
-            print(f"Creating branch '{branch_name}' in dataset '{DATASET_REPO_ID}'")
-            api.create_branch(repo_id=DATASET_REPO_ID, repo_type="dataset", branch=branch_name)
+            repo_info = api.repo_info(repo_id=dataset_repo_id, repo_type="dataset")
+            print(f"Creating branch '{branch_name}' in dataset '{dataset_repo_id}'")
+            api.create_branch(repo_id=dataset_repo_id, repo_type="dataset", branch=branch_name)
         except Exception as e:
             print(f"Could not create branch '{branch_name}': {e}")
             print(f"Failed to create branch '{branch_name}'. Aborting PR creation.")
@@ -58,7 +58,7 @@ def upload_logs():
 
         print(f"Creating commit on branch '{branch_name}' with message: '{commit_message}'")
         commit_info = api.create_commit(
-            repo_id=DATASET_REPO_ID,
+            repo_id=dataset_repo_id,
             repo_type="dataset",
             operations=operations,
             commit_message=commit_message,
