@@ -32,12 +32,16 @@ def load_config() -> dict:
     to ~/.dolphin-logger/config.json and loads it.
     """
     user_config_path = get_config_path()
-    package_config_path = Path(__file__).parent / "config.json"
+    # Use config.json.example from the project root as the template
+    package_config_path = Path(__file__).parent.parent.parent / "config.json.example"
 
     if not user_config_path.exists():
-        # Copy the default config to the user's config directory
-        shutil.copy(package_config_path, user_config_path)
-        print(f"Copied default config to {user_config_path}")
+        if package_config_path.exists():
+            # Copy the default config to the user's config directory
+            shutil.copy(package_config_path, user_config_path)
+            print(f"Copied default config to {user_config_path}")
+        else:
+            raise FileNotFoundError(f"Template config file not found at {package_config_path}")
 
     config_path = user_config_path
     config_data = {}

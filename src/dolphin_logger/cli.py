@@ -20,23 +20,20 @@ def _handle_init_command():
         print(f"Configuration file already exists at: {config_file_path}")
     else:
         try:
-            # Locate config.json.example within the package
-            # importlib.resources.files returns a Traversable object.
-            # We need to ensure dolphin_logger is recognized as a package.
-            # Assuming 'dolphin_logger' is the package name.
-            default_config_traversable = pkg_resources.files('dolphin_logger').joinpath('config.json.example')
+            # Use config.json.example from the project root as the template
+            template_path = Path(__file__).parent.parent.parent / "config.json.example"
             
-            # Check if the source example file exists using the Traversable API
-            if default_config_traversable.is_file():
+            if template_path.exists():
                 # Ensure config_dir exists (get_config_dir should do this, but double check)
                 config_dir.mkdir(parents=True, exist_ok=True)
                 
-                shutil.copy(str(default_config_traversable), config_file_path)
+                shutil.copy(template_path, config_file_path)
                 print(f"Default configuration file created at: {config_file_path}")
                 print("Please review and update it with your API keys and model preferences.")
             else:
-                print(f"Error: Default configuration template (config.json.example) not found within the package.")
-                print(f"Attempted to find it at traversable path: {default_config_traversable}")
+                print(f"Error: Default configuration template (config.json.example) not found.")
+                print(f"Expected location: {template_path}")
+                print("Please ensure the package is installed correctly and config.json.example exists in the project root.")
 
         except Exception as e:
             print(f"Error during configuration initialization: {e}")
