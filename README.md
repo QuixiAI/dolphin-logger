@@ -6,7 +6,7 @@ A proxy server that logs your LLM conversations to create datasets from your int
 
 ## Quick Start
 
-1. **Install:** `pip install .` (or `pip install dolphin-logger` when published)
+1. **Install:** `pip install dolphin-logger`
 2. **Initialize:** `dolphin-logger init`
 3. **Configure:** Edit your config file with your API keys (see path below)
 4. **Run:** `dolphin-logger` (starts server on http://localhost:5001)
@@ -241,9 +241,27 @@ dolphin-logger [command] [options]
 
 *   **`config`**
     *   Manages or inspects the configuration.
-    *   `--path`: Shows the expected absolute path to the `config.json` file.
+    *   `--path`: Shows the absolute path to the `config.json` file (shell-friendly output).
         ```bash
         dolphin-logger config --path
+        ```
+        *Powerful shell operations using the path:*
+        ```bash
+        # Edit config file directly
+        vim $(dolphin-logger config --path)
+        
+        # Copy config to backup
+        cp $(dolphin-logger config --path) backup-config.json
+        
+        # Check if config exists
+        [ -f "$(dolphin-logger config --path)" ] && echo "Config exists"
+        
+        # View config contents
+        cat $(dolphin-logger config --path)
+        
+        # Use in scripts
+        CONFIG_PATH=$(dolphin-logger config --path)
+        echo "Config is at: $CONFIG_PATH"
         ```
     *   `--validate`: Attempts to load and validate the `config.json` file, checking for JSON correctness and basic structure. It will also report on API keys resolved from environment variables.
         ```bash

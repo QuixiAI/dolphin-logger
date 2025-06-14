@@ -1,5 +1,6 @@
 import argparse
 import shutil
+import sys
 import importlib.resources as pkg_resources # Use importlib.resources
 import os # For os.path.exists in init if needed, though Path.exists is better
 from pathlib import Path # For Path object operations
@@ -50,9 +51,9 @@ def _handle_config_command(args):
     """Handles the `dolphin-logger config` command."""
     if args.path:
         config_file_path = get_config_path()
-        print(f"Expected configuration file path: {config_file_path}")
+        print(config_file_path)
         if not config_file_path.exists():
-             print(f"Note: Configuration file does not currently exist at this path. Run 'dolphin-logger init' to create it.")
+             print(f"Note: Configuration file does not currently exist at this path. Run 'dolphin-logger init' to create it.", file=sys.stderr)
     
     elif args.validate:
         config_file_path = get_config_path()
