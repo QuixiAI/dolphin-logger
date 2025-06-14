@@ -6,7 +6,7 @@ A proxy server that logs your LLM conversations to create datasets from your int
 
 ## Quick Start
 
-1. **Install:** `pip install dolphin-logger`
+1. **Install:** `pip install dolphin-logger` 
 2. **Initialize:** `dolphin-logger init`
 3. **Configure:** Edit your config file with your API keys (see path below)
 4. **Run:** `dolphin-logger` (starts server on http://localhost:5001)
