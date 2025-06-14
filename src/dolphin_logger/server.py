@@ -43,6 +43,23 @@ def health_check():
 @app.route('/<path:path>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 def proxy(path: str | None = None): # path can be None
     global MODEL_CONFIG # Ensure we are referring to the global
+    
+    # Check if client is trying to use HTTPS on HTTP server
+    if request.headers.get('X-Forwarded-Proto') == 'https' or \
+       request.url.startswith('https://') or \
+       request.headers.get('X-Forwarded-Ssl') == 'on':
+        print("\n" + "="*60)
+        print("🚨 HTTPS CONNECTION DETECTED!")
+        print("="*60)
+        print("You probably want to change https://localhost to http://localhost")
+        print("Dolphin Logger runs on HTTP, not HTTPS.")
+        print("Update your client configuration to use:")
+        print(f"   http://localhost:{request.environ.get('SERVER_PORT', '5001')}")
+        print("="*60 + "\n")
+        return jsonify({
+            "error": "HTTPS not supported. Use http://localhost instead of https://localhost",
+            "suggestion": f"Change your client configuration to: http://localhost:{request.environ.get('SERVER_PORT', '5001')}"
+        }), 400
 
     # Handle /v1/models endpoint directly here
     # Ensure path is not None before calling endswith
@@ -137,22 +154,47 @@ def proxy(path: str | None = None): # path can be None
             original_request_json_data=original_request_json
         )
 
-def run_server_main(): # Renamed to avoid conflict with any 'main' in cli.py if imported directly
+def run_server_main(port=None): # Renamed to avoid conflict with any 'main' in cli.py if imported directly
     """Sets up and runs the Flask development server."""
     global MODEL_CONFIG
     try:
         config_data = load_config()
         MODEL_CONFIG = config_data.get('models', [])
-        print(f"Loaded {len(MODEL_CONFIG)} models from config.")
-        if not MODEL_CONFIG:
-            print("Warning: No models found in configuration.")
+        
+        # Enhanced startup status summary
+        print("\n" + "="*50)
+        print("🐬 Dolphin Logger Server Starting")
+        print("="*50)
+        
+        if MODEL_CONFIG:
+            print(f"✅ Loaded {len(MODEL_CONFIG)} model(s):")
+            for model in MODEL_CONFIG:
+                model_name = model.get('model', 'unknown')
+                provider = model.get('provider', 'unknown')
+                provider_model = model.get('providerModel', 'unknown')
+                print(f"   • {model_name} ({provider}: {provider_model})")
+        else:
+            print("⚠️  Warning: No models found in configuration.")
+            
     except Exception as e:
-        print(f"Critical Error loading config: {e}. Server might not function correctly.")
+        print(f"❌ Critical Error loading config: {e}. Server might not function correctly.")
         MODEL_CONFIG = []
 
-    port = int(os.environ.get('PORT', 5001))
-    print(f"Starting Dolphin Logger server on port {port}...")
-    print(f"Configuration loaded from: {get_config_path()}")
-    print(f"Logs will be stored in: {get_logs_dir()}")   
+    # Port priority: CLI argument > environment variable > default (5001)
+    if port is None:
+        port = int(os.environ.get('PORT', 5001))
+    
+    base_url = f"http://localhost:{port}"
+    
+    print(f"\n📍 Server Details:")
+    print(f"   • URL: {base_url}")
+    print(f"   • Health Check: {base_url}/health")
+    print(f"   • Models Endpoint: {base_url}/v1/models")
+    print(f"   • Chat Endpoint: {base_url}/v1/chat/completions")
+    print(f"\n📁 File Locations:")
+    print(f"   • Configuration: {get_config_path()}")
+    print(f"   • Logs Directory: {get_logs_dir()}")
+    print(f"\n🚀 Server ready! Use Ctrl+C to stop.")
+    print("="*50 + "\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)

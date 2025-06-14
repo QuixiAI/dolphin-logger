@@ -97,8 +97,7 @@ def main_cli():
 
     # Server command (default if no command is specified)
     server_parser = subparsers.add_parser('server', help='Run the proxy server (default action if no command is given).')
-    # Add server-specific arguments here if needed in the future, e.g., --port
-    # server_parser.set_defaults(func=_run_server_command) # Link to a handler
+    server_parser.add_argument('--port', type=int, default=None, help='Port to run the server on (default: 5001, or PORT environment variable)')
 
     # Upload command
     upload_parser = subparsers.add_parser('upload', help='Upload logs to Hugging Face Hub.')
@@ -139,7 +138,11 @@ def main_cli():
     if command_to_run == 'server':
         print("Server mode activated.")
         try:
-            run_server_main() 
+            # Handle port argument for server command
+            port = None
+            if hasattr(args, 'port') and args.port is not None:
+                port = args.port
+            run_server_main(port=port) 
         except Exception as e:
             print(f"An error occurred while trying to start the server: {e}")
     

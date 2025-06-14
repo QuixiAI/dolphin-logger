@@ -1,11 +1,19 @@
 import os
 import glob
 from datetime import datetime
-from huggingface_hub import HfApi, CommitOperationAdd
 from pathlib import Path
 
 # Import get_logs_dir and get_huggingface_repo from the new config.py
 from .config import get_logs_dir, get_huggingface_repo
+
+# huggingface-hub is now a hard dependency, datasets is optional
+from huggingface_hub import HfApi, CommitOperationAdd
+
+try:
+    import datasets
+    DATASETS_AVAILABLE = True
+except ImportError:
+    DATASETS_AVAILABLE = False
 
 def find_jsonl_files(log_dir: str | Path) -> list[str]:
     """Finds all .jsonl files in the specified log directory."""

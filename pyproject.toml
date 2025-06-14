@@ -21,10 +21,11 @@ dependencies = [
     "flask-cors",
     "requests",
     "anthropic",
-    # huggingface-hub and datasets seem related to the upload script,
-    # maybe make them optional dependencies or handle separately?
-    # For now, including them as core dependencies based on requirements.txt
     "huggingface-hub",
+]
+
+[project.optional-dependencies]
+upload = [
     "datasets",
 ]
 
