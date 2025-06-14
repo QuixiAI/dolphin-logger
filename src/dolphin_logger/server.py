@@ -5,7 +5,7 @@ from flask_cors import CORS
 
 # Imports from our refactored modules
 from .config import load_config, get_config_path, get_logs_dir
-from .core_proxy import get_target_api_config, handle_anthropic_sdk_request, handle_rest_api_request
+from .core_proxy import get_target_api_config, handle_anthropic_sdk_request, handle_google_sdk_request, handle_rest_api_request
 # logging_utils are used by core_proxy, not directly by server.py usually.
 
 app = Flask(__name__)
@@ -123,6 +123,14 @@ def proxy(path: str | None = None): # path can be None
             is_stream=is_stream,
             original_request_json_data=original_request_json
         )
+    elif target_api_url == "google_sdk":
+        return handle_google_sdk_request(
+            json_data_for_sdk=json_data_for_downstream_call,
+            target_model=target_model_for_provider,
+            target_api_key=target_api_key,
+            is_stream=is_stream,
+            original_request_json_data=original_request_json
+        )
     else:
         # Handle URL construction more intelligently
         # If the target_api_url already contains a path (like /private/chat/completions),
@@ -151,7 +159,8 @@ def proxy(path: str | None = None): # path can be None
             headers=downstream_headers,
             data_bytes=data_to_send_final_bytes, 
             is_stream=is_stream,
-            original_request_json_data=original_request_json
+            original_request_json_data=original_request_json,
+            provider=api_config_result.get("provider", "openai")
         )
 
 def run_server_main(port=None): # Renamed to avoid conflict with any 'main' in cli.py if imported directly
