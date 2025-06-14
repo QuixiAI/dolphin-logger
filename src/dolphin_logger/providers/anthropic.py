@@ -5,6 +5,9 @@ Anthropic provider implementation for Dolphin Logger.
 import json
 import anthropic
 import uuid
+import base64
+import mimetypes
+import requests
 from datetime import datetime
 from flask import Response, stream_with_context, jsonify
 
@@ -51,7 +54,61 @@ def handle_anthropic_request(
             if message.get('role') == 'system':
                 system_messages.append(message.get('content', ''))
             else:
-                non_system_messages.append(message)
+                # Transform 'type': 'image_url' to 'type': 'image' if present
+                if isinstance(message.get('content'), list):
+                    new_content = []
+                    for part in message['content']:
+                        if isinstance(part, dict) and part.get('type') == 'image_url':
+                            image_url_data = part.get('image_url')
+                            
+                            # Handle nested structure: {"image_url": {"url": "..."}}
+                            if isinstance(image_url_data, dict):
+                                image_url_value = image_url_data.get('url')
+                            else:
+                                # Handle direct string: {"image_url": "..."}
+                                image_url_value = image_url_data
+                            
+                            # Determine if it's a URL or base64
+                            if isinstance(image_url_value, str) and image_url_value.startswith("http"):
+                                # Download image
+                                resp = requests.get(image_url_value)
+                                resp.raise_for_status()
+                                image_bytes = resp.content
+                                # Guess media type from URL or response headers
+                                media_type = resp.headers.get("Content-Type")
+                                if not media_type:
+                                    media_type, _ = mimetypes.guess_type(image_url_value)
+                                if not media_type:
+                                    media_type = "image/jpeg"
+                                base64_image = base64.b64encode(image_bytes).decode("utf-8")
+                            elif isinstance(image_url_value, str):
+                                # Assume it's already base64, but validate it
+                                try:
+                                    # Test if it's valid base64 by trying to decode it
+                                    base64.b64decode(image_url_value, validate=True)
+                                    base64_image = image_url_value
+                                except Exception:
+                                    raise ValueError(f"Invalid base64 data in 'image_url' field: {image_url_value[:100]}...")
+                                # Try to infer media type from a data URI, else default
+                                media_type = "image/jpeg"
+                            else:
+                                raise ValueError(f"Invalid 'image_url' value in message part: expected URL or base64 string, got {type(image_url_value)} with value {image_url_data}")
+                            new_part = {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": base64_image
+                                }
+                            }
+                            new_content.append(new_part)
+                        else:
+                            new_content.append(part)
+                    new_message = dict(message)
+                    new_message['content'] = new_content
+                    non_system_messages.append(new_message)
+                else:
+                    non_system_messages.append(message)
         
         # Combine system messages into a single system prompt
         system_prompt = '\n\n'.join(system_messages) if system_messages else None
@@ -71,6 +128,7 @@ def handle_anthropic_request(
 
         if is_stream:
             print(f"DEBUG - Creating streaming request to Anthropic API: model={target_model}")
+            print(f"DEBUG - Anthropic payload: {json.dumps(anthropic_args, indent=2)}")
             sdk_stream = anthropic_client.messages.create(**anthropic_args)
 
             def generate_anthropic_stream_response():
@@ -113,6 +171,7 @@ def handle_anthropic_request(
             return resp
         else:
             print(f"DEBUG - Creating non-streaming request to Anthropic API: model={target_model}")
+            print(f"DEBUG - Anthropic payload: {json.dumps(anthropic_args, indent=2)}")
             response_obj = anthropic_client.messages.create(**anthropic_args)
             
             response_content = response_obj.content[0].text if response_obj.content and len(response_obj.content) > 0 and hasattr(response_obj.content[0], 'text') else ""
