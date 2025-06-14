@@ -4,6 +4,7 @@ from flask import Response
 from .providers.anthropic import handle_anthropic_request
 from .providers.openai import handle_openai_request
 from .providers.google import handle_google_request
+from .providers.ollama import handle_ollama_request
 # MODEL_CONFIG is typically loaded in server.py and passed to get_target_api_config.
 
 def get_target_api_config(requested_model_id: str, model_config_list: list) -> dict:
@@ -125,8 +126,12 @@ def handle_rest_api_request(
         return handle_google_request(
             method, url, headers, data_bytes, is_stream, original_request_json_data
         )
+    elif provider == "ollama":
+        return handle_ollama_request(
+            method, url, headers, data_bytes, is_stream, original_request_json_data
+        )
     else:
-        # Default to OpenAI provider for OpenAI-compatible APIs (including Ollama)
+        # Default to OpenAI provider for OpenAI-compatible APIs
         return handle_openai_request(
             method, url, headers, data_bytes, is_stream, original_request_json_data
         )
