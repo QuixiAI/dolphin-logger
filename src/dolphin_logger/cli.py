@@ -29,7 +29,14 @@ def _handle_init_command():
                 
                 shutil.copy(template_path, config_file_path)
                 print(f"Default configuration file created at: {config_file_path}")
-                print("Please review and update it with your API keys and model preferences.")
+                print("\n🎉 Configuration initialized! Next steps:")
+                print("1. Set your API keys as environment variables:")
+                print("   export ANTHROPIC_API_KEY=your_anthropic_key")
+                print("   export OPENAI_API_KEY=your_openai_key")
+                print("   export GOOGLE_API_KEY=your_google_key")
+                print("2. (Optional) Edit the config file to customize models and endpoints")
+                print("3. Start the server: dolphin-logger")
+                print("4. Test with: curl http://localhost:5001/v1/models")
             else:
                 print(f"Error: Default configuration template (config.json.example) not found.")
                 print(f"Expected location: {template_path}")
