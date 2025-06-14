@@ -91,6 +91,10 @@ def _handle_config_command(args):
 def main_cli():
     """Command Line Interface entry point for Dolphin Logger."""
     parser = argparse.ArgumentParser(description="Dolphin Logger: Proxy server, log uploader, and config manager.")
+    
+    # Add --port to the main parser so it works with default server behavior
+    parser.add_argument('--port', type=int, default=None, help='Port to run the server on (default: 5001, or PORT environment variable)')
+    
     subparsers = parser.add_subparsers(dest='command', title='commands',
                                        description='Valid commands:',
                                        help="Run 'dolphin-logger <command> -h' for more information on a specific command.")
@@ -139,7 +143,7 @@ def main_cli():
     if command_to_run == 'server':
         print("Server mode activated.")
         try:
-            # Handle port argument for server command
+            # Handle port argument - check both main parser and subparser
             port = None
             if hasattr(args, 'port') and args.port is not None:
                 port = args.port
