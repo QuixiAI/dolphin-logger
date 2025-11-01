@@ -8,12 +8,73 @@ import getpass
 import subprocess
 import requests
 from typing import Dict, List, Optional
+import re
 
 # Imports from our refactored modules
 from .config import load_config, get_config_path, get_config_dir # Added get_config_dir
 from .server import run_server_main
 from .upload import upload_logs
 import json # For validate in config command
+
+def _detect_claude_code_path():
+    """Detect the Claude Code executable path using 'which claude'."""
+    try:
+        result = subprocess.run(
+            ['which', 'claude'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode == 0:
+            path = result.stdout.strip()
+            # Remove trailing backslash if present
+            path = path.rstrip('\\')
+            if path and os.path.exists(path):
+                return path
+    except Exception as e:
+        print(f"   ⚠️  Could not detect Claude Code path: {e}")
+    return None
+
+
+def _setup_claude_code_token(claude_code_path):
+    """Execute 'claude setup-token' and extract the OAuth token."""
+    print("\n🔑 Setting up Claude Code OAuth token...")
+    print("   This will create a long-lived authentication token for Claude Code.")
+
+    try:
+        result = subprocess.run(
+            [claude_code_path, 'setup-token'],
+            capture_output=True,
+            text=True,
+            timeout=60  # Give it a minute to complete
+        )
+
+        if result.returncode != 0:
+            print(f"   ⚠️  'claude setup-token' failed with exit code {result.returncode}")
+            if result.stderr:
+                print(f"   Error: {result.stderr}")
+            return None
+
+        # Parse the output to extract the OAuth token
+        # Looking for a line that starts with "sk-ant-oat"
+        token_pattern = r'(sk-ant-oat[a-zA-Z0-9_-]+)'
+        match = re.search(token_pattern, result.stdout)
+
+        if match:
+            token = match.group(1)
+            print("   ✅ OAuth token obtained successfully!")
+            return token
+        else:
+            print("   ⚠️  Could not find OAuth token in claude setup-token output")
+            return None
+
+    except subprocess.TimeoutExpired:
+        print("   ⚠️  'claude setup-token' timed out")
+        return None
+    except Exception as e:
+        print(f"   ⚠️  Error running 'claude setup-token': {e}")
+        return None
+
 
 def _interactive_api_key_setup():
     """Interactive API key setup with provider-specific instructions."""
@@ -133,10 +194,11 @@ def _handle_init_command(interactive=False):
     """Handles the `dolphin-logger init` command."""
     print("🐬 Dolphin Logger Configuration Setup")
     print("=" * 50)
-    
+
     config_dir = get_config_dir()
     config_file_path = get_config_path()
 
+    config_created = False
     if config_file_path.exists():
         print(f"📁 Configuration file already exists at: {config_file_path}")
         if interactive:
@@ -148,11 +210,12 @@ def _handle_init_command(interactive=False):
         try:
             # Use config.json.example from the project root as the template
             template_path = Path(__file__).parent.parent.parent / "config.json.example"
-            
+
             if template_path.exists():
                 config_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy(template_path, config_file_path)
                 print(f"✅ Default configuration file created at: {config_file_path}")
+                config_created = True
             else:
                 print(f"❌ Error: Default configuration template not found at {template_path}")
                 print("Please ensure the package is installed correctly.")
@@ -161,6 +224,80 @@ def _handle_init_command(interactive=False):
         except Exception as e:
             print(f"❌ Error during configuration initialization: {e}")
             return
+
+    # Detect and add Claude Code configuration
+    print("\n🔍 Detecting Claude Code...")
+    claude_code_path = _detect_claude_code_path()
+
+    if claude_code_path:
+        print(f"✅ Claude Code found at: {claude_code_path}")
+
+        # Setup OAuth token
+        oauth_token = _setup_claude_code_token(claude_code_path)
+
+        try:
+            # Read the config file
+            with open(config_file_path, 'r') as f:
+                config_data = json.load(f)
+
+            # Check if claude_code model already exists
+            models = config_data.get('models', [])
+            claude_code_model_index = None
+            for i, m in enumerate(models):
+                if m.get('provider') == 'claude_code':
+                    claude_code_model_index = i
+                    break
+
+            if claude_code_model_index is None:
+                # Add Claude Code model configuration
+                claude_code_model = {
+                    "provider": "claude_code",
+                    "model": "claude-code",
+                    "claudeCodePath": claude_code_path
+                }
+
+                # Add OAuth token if we got one
+                if oauth_token:
+                    claude_code_model["claudeCodeOAuthToken"] = oauth_token
+
+                models.append(claude_code_model)
+                config_data['models'] = models
+
+                # Write back the updated config
+                with open(config_file_path, 'w') as f:
+                    json.dump(config_data, f, indent=2)
+                    f.write('\n')  # Add trailing newline
+
+                print("✅ Added Claude Code model to configuration")
+            else:
+                # Update existing Claude Code model with OAuth token
+                if oauth_token:
+                    models[claude_code_model_index]["claudeCodeOAuthToken"] = oauth_token
+                    config_data['models'] = models
+
+                    # Write back the updated config
+                    with open(config_file_path, 'w') as f:
+                        json.dump(config_data, f, indent=2)
+                        f.write('\n')  # Add trailing newline
+
+                    print("✅ Updated Claude Code OAuth token in configuration")
+                else:
+                    print("ℹ️  Claude Code model already exists in configuration")
+
+            # Set environment variable and print instructions
+            if oauth_token:
+                os.environ['CLAUDE_CODE_OAUTH_TOKEN'] = oauth_token
+                print("\n📝 OAuth Token Setup Complete!")
+                print(f"   Token saved to configuration: {config_file_path}")
+                print(f"   Environment variable set for this session: CLAUDE_CODE_OAUTH_TOKEN")
+                print(f"\n   To use this token in future sessions, add to your shell profile:")
+                print(f"   export CLAUDE_CODE_OAUTH_TOKEN={oauth_token}")
+
+        except Exception as e:
+            print(f"⚠️  Could not add Claude Code to configuration: {e}")
+    else:
+        print("⚠️  Claude Code not found. Install it with: npm install -g @anthropics/claude-code")
+        print("   You can add it to the configuration later.")
 
     if interactive:
         # Interactive setup

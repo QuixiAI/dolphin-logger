@@ -21,6 +21,7 @@ A proxy server that logs your LLM conversations to create datasets from your int
     - Anthropic via OpenAI-compatible API
     - Google (e.g., gemini-pro)
     - Ollama (local models e.g., codestral, dolphin)
+    - Claude Code CLI (leverages Claude Max subscriptions)
 - Configuration-based model definition using `config.json`
 - Dynamic API endpoint selection based on the requested model in the `/v1/chat/completions` endpoint.
 - Provides a `/v1/models` endpoint listing all configured models.
@@ -122,6 +123,11 @@ Dolphin Logger uses a `config.json` file to define available LLM models and thei
          "provider": "ollama",
          "providerModel": "dolphin3",
          "model": "dolphin"
+       },
+       {
+         "provider": "claude_code",
+         "providerModel": "unknown",
+         "model": "claude-code"
        }
      ]
    }
@@ -132,10 +138,11 @@ Configuration fields:
   - "openai" for OpenAI-compatible APIs
   - "anthropic" for native Anthropic SDK (recommended for Claude models)
   - "ollama" for local Ollama models
+  - "claude_code" for Claude Code CLI (leverages Claude Max subscriptions)
 - `providerModel`: The actual model name to send to the provider's API
 - `model`: The model name that clients will use when making requests to the proxy
-- `apiBase`: The base URL for the API. For Ollama, this defaults to `http://localhost:11434/v1` if not specified. For Anthropic (using the native SDK via `provider: "anthropic"`), this field is not used.
-- `apiKey`: The API key for authentication. Not needed for Ollama. This can be the actual key string or a reference to an environment variable.
+- `apiBase`: The base URL for the API. For Ollama, this defaults to `http://localhost:11434/v1` if not specified. For Anthropic (using the native SDK via `provider: "anthropic"`), this field is not used. For Claude Code, this field is not used.
+- `apiKey`: The API key for authentication. Not needed for Ollama or Claude Code. This can be the actual key string or a reference to an environment variable.
 
 **Using Environment Variables for API Keys (Recommended for Security):**
 
@@ -191,6 +198,13 @@ Note for Anthropic models:
 Note for Ollama models:
 - If `apiBase` is not specified for an Ollama provider, it defaults to `http://localhost:11434/v1`.
 - No API key is required for local Ollama models.
+
+Note for Claude Code:
+- The "claude_code" provider uses the Claude Code CLI to leverage your Claude Max subscription
+- Requires Claude Code to be installed and authenticated (run `claude setup-token`)
+- No API key is required in the config - authentication is handled by Claude Code CLI
+- The `providerModel` field is not used (Claude Code manages model selection internally)
+- All requests are logged with detailed usage and cost information from Claude Code
 
 **4. Validate Configuration (Optional):**
    After editing, you can validate your `config.json`:
@@ -407,12 +421,18 @@ The `dolphin-logger upload` command facilitates uploading your collected logs to
    - Check that the model names in your config match available Ollama models
    - Verify Ollama is accessible at `http://localhost:11434`
 
-7. **Logs not being created:**
+7. **Claude Code models not working:**
+   - Ensure Claude Code is installed: `claude --version`
+   - Verify authentication: `claude setup-token`
+   - Test Claude Code directly: `echo "test" | claude chat --print`
+   - Check server logs for specific error messages from Claude Code CLI
+
+8. **Logs not being created:**
    - Check that requests don't start with "### Task:" (these are suppressed by default)
    - Verify the logs directory exists and is writable
    - Look for error messages in the server output
 
-8. **HTTPS configuration error:**
+9. **HTTPS configuration error:**
    - If you see an HTTPS error message, change your client configuration from `https://localhost` to `http://localhost`
    - Dolphin Logger runs on HTTP, not HTTPS
 
@@ -437,6 +457,8 @@ The `dolphin-logger` codebase is organized into several modules within the `src/
 - `cli.py`: Handles command-line argument parsing and dispatches to appropriate functions for different commands (`server`, `upload`, `init`, `config`).
 - `server.py`: Contains the Flask application setup, route definitions (`/health`, `/v1/models`, and the main proxy route), and the main server running logic.
 - `core_proxy.py`: Implements the core logic for proxying requests. This includes selecting the target API based on configuration, and separate handlers for Anthropic SDK requests and general REST API requests.
+- `providers/`: Provider-specific implementations for different LLM backends.
+  - `claude_code.py`: Claude Code CLI provider implementation for leveraging Claude Max subscriptions.
 - `config.py`: Manages configuration loading, creation of default configuration, and resolution of API keys from environment variables.
 - `logging_utils.py`: Provides utilities for managing log files (daily rotation, UUID naming) and determining if a request should be logged.
 - `upload.py`: Contains the logic for finding log files and uploading them to a Hugging Face Hub dataset.

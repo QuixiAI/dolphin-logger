@@ -5,6 +5,7 @@ from .providers.anthropic import handle_anthropic_request
 from .providers.openai import handle_openai_request
 from .providers.google import handle_google_request
 from .providers.ollama import handle_ollama_request
+from .providers.claude_code import handle_claude_code_request
 # MODEL_CONFIG is typically loaded in server.py and passed to get_target_api_config.
 
 def get_target_api_config(requested_model_id: str, model_config_list: list) -> dict:
@@ -51,6 +52,17 @@ def get_target_api_config(requested_model_id: str, model_config_list: list) -> d
                     "provider": provider,
                     "error": None,
                 }
+            elif provider == "claude_code":
+                return {
+                    "target_api_url": "claude_code_sdk", # Special marker
+                    "target_api_key": None,  # Claude Code handles auth internally
+                    "target_model": "claude-code",  # Placeholder - Claude Code handles model selection
+                    "provider": provider,
+                    "claude_code_path": model_config.get("claudeCodePath"),
+                    "claude_code_oauth_token": model_config.get("claudeCodeOAuthToken"),
+                    "max_output_tokens": model_config.get("maxOutputTokens"),
+                    "error": None,
+                }
             else: # OpenAI-compatible
                 if not api_base:
                     # Ensure a specific error message for missing apiBase for OpenAI-like providers
@@ -89,10 +101,10 @@ def handle_anthropic_sdk_request(
 
 
 def handle_google_sdk_request(
-    json_data_for_sdk: dict, 
-    target_model: str, 
-    target_api_key: str | None, 
-    is_stream: bool, 
+    json_data_for_sdk: dict,
+    target_model: str,
+    target_api_key: str | None,
+    is_stream: bool,
     original_request_json_data: dict
 ) -> Response:
     """
@@ -100,11 +112,37 @@ def handle_google_sdk_request(
     Delegates to the Google provider.
     """
     return handle_google_request(
-        json_data_for_sdk, 
-        target_model, 
-        target_api_key, 
-        is_stream, 
+        json_data_for_sdk,
+        target_model,
+        target_api_key,
+        is_stream,
         original_request_json_data
+    )
+
+
+def handle_claude_code_sdk_request(
+    json_data_for_sdk: dict,
+    target_model: str,
+    target_api_key: str | None,
+    is_stream: bool,
+    original_request_json_data: dict,
+    claude_code_path: str | None = None,
+    claude_code_oauth_token: str | None = None,
+    max_output_tokens: int | None = None
+) -> Response:
+    """
+    Handles requests to Claude Code.
+    Delegates to the Claude Code provider.
+    """
+    return handle_claude_code_request(
+        json_data_for_sdk,
+        target_model,
+        target_api_key,
+        is_stream,
+        original_request_json_data,
+        claude_code_path,
+        claude_code_oauth_token,
+        max_output_tokens
     )
 
 

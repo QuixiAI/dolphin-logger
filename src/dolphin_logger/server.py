@@ -5,7 +5,7 @@ from flask_cors import CORS
 
 # Imports from our refactored modules
 from .config import load_config, get_config_path, get_logs_dir
-from .core_proxy import get_target_api_config, handle_anthropic_sdk_request, handle_google_sdk_request, handle_rest_api_request
+from .core_proxy import get_target_api_config, handle_anthropic_sdk_request, handle_google_sdk_request, handle_claude_code_sdk_request, handle_rest_api_request
 # logging_utils are used by core_proxy, not directly by server.py usually.
 
 app = Flask(__name__)
@@ -130,6 +130,17 @@ def proxy(path: str | None = None): # path can be None
             target_api_key=target_api_key,
             is_stream=is_stream,
             original_request_json_data=original_request_json
+        )
+    elif target_api_url == "claude_code_sdk":
+        return handle_claude_code_sdk_request(
+            json_data_for_sdk=json_data_for_downstream_call,
+            target_model=target_model_for_provider,
+            target_api_key=target_api_key,
+            is_stream=is_stream,
+            original_request_json_data=original_request_json,
+            claude_code_path=api_config_result.get("claude_code_path"),
+            claude_code_oauth_token=api_config_result.get("claude_code_oauth_token"),
+            max_output_tokens=api_config_result.get("max_output_tokens")
         )
     else:
         # Handle URL construction more intelligently

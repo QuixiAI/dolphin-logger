@@ -30,6 +30,11 @@
       "provider": "ollama",
       "providerModel": "dolphin3",
       "model": "dolphin"
+    },
+    {
+      "provider": "claude_code",
+      "providerModel": "unknown",
+      "model": "claude-code"
     }
   ]
 }
