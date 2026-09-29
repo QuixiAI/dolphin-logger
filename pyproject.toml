@@ -30,8 +30,8 @@ upload = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/cognitivecomputations/dolphin-logger" 
-"Bug Tracker" = "https://github.com/cognitivecomputations/dolphin-logger/issues" 
+"Homepage" = "https://github.com/QuixiAI/dolphin-logger" 
+"Bug Tracker" = "https://github.com/QuixiAI/dolphin-logger/issues" 
 
 [project.scripts]
 dolphin-logger = "dolphin_logger.cli:main_cli"

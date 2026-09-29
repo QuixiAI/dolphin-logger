@@ -55,7 +55,7 @@ def test_upload_logs_success_upload(
     
     # Simulate create_commit succeeding and returning an object with pr_url
     commit_info_mock = MagicMock()
-    commit_info_mock.pr_url = "http://hf.co/datasets/cognitivecomputations/dolphin-logger/pull/123"
+    commit_info_mock.pr_url = "http://hf.co/datasets/QuixiAI/dolphin-logger/pull/123"
     mock_hf_api_instance.create_commit.return_value = commit_info_mock
 
     # Mock print to check output messages
@@ -84,7 +84,7 @@ def test_upload_logs_success_upload(
     # Check for PR URL print
     printed_pr_url = False
     for call_arg in mock_print.call_args_list:
-        if "Pull Request (Draft): http://hf.co/datasets/cognitivecomputations/dolphin-logger/pull/123" in call_arg[0][0]:
+        if "Pull Request (Draft): http://hf.co/datasets/QuixiAI/dolphin-logger/pull/123" in call_arg[0][0]:
             printed_pr_url = True
             break
     assert printed_pr_url, "PR URL was not printed on successful upload."

@@ -77,4 +77,4 @@ def get_huggingface_repo() -> str:
     If not specified in config, returns the default value.
     """
     config = load_config()
-    return config.get("huggingface_repo", "cognitivecomputations/dolphin-logger")
+    return config.get("huggingface_repo", "QuixiAI/dolphin-logger")

@@ -38,7 +38,7 @@ A proxy server that logs your LLM conversations to create datasets from your int
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/cognitivecomputations/dolphin-logger.git
+   git clone https://github.com/QuixiAI/dolphin-logger.git
    cd dolphin-logger
    ```
 
@@ -92,7 +92,7 @@ Dolphin Logger uses a `config.json` file to define available LLM models and thei
    *Example `config.json` structure:*
    ```json
    {
-     "huggingface_repo": "cognitivecomputations/dolphin-logger",
+     "huggingface_repo": "QuixiAI/dolphin-logger",
      "models": [
        {
          "provider": "anthropic",
@@ -376,7 +376,7 @@ The `dolphin-logger upload` command facilitates uploading your collected logs to
 
 **Prerequisites:**
 - **Hugging Face Token:** Ensure the `HF_TOKEN` environment variable is set with a Hugging Face token. This token must have write access to the target dataset repository.
-- **Target Repository:** The default target dataset is `cognitivecomputations/dolphin-logger`. This can be changed by modifying the `huggingface_repo` field in your `config.json`.
+- **Target Repository:** The default target dataset is `QuixiAI/dolphin-logger`. This can be changed by modifying the `huggingface_repo` field in your `config.json`.
 
 **Process:**
 1.  Run: `dolphin-logger upload`

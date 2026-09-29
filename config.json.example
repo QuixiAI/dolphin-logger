@@ -1,5 +1,5 @@
 {
-  "huggingface_repo": "cognitivecomputations/dolphin-logger",
+  "huggingface_repo": "QuixiAI/dolphin-logger",
   "models": [
     {
       "provider": "anthropic",
